@@ -1,0 +1,6 @@
+framework module Pods_FinLit {
+  umbrella header "Pods-FinLit-umbrella.h"
+
+  export *
+  module * { export * }
+}
