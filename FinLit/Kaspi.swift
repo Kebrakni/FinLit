@@ -1,6 +1,3 @@
-// Kaspi.swift
-// Исправлен парсер: теперь корректно читает месячные и годовые выписки (многостраничные PDF)
-
 import Foundation
 import PDFKit
 
@@ -16,214 +13,246 @@ final class KaspiPDFParser {
             return ParseResult(transactions: [], errors: ["Не открыл PDF"])
         }
 
-        // ИСПРАВЛЕНИЕ 1: Собираем текст постранично с явным разделителем
-        // Раньше \n заменялись пробелами — из-за этого транзакции с разных строк
-        // склеивались и regex не мог их разобрать
-        var pages: [String] = []
+        var all: [Transaction] = []
+
         for i in 0..<doc.pageCount {
-            if let page = doc.page(at: i), let s = page.string {
-                pages.append(s)
+            guard let page = doc.page(at: i),
+                  let raw = page.string,
+                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+
+            let cleaned = normalizePage(stripKaspiPageArtifacts(from: raw))
+
+            // 1) Сначала пробуем обычный построчный парсинг
+            let rowTx = extractRowWise(from: cleaned)
+            if !rowTx.isEmpty {
+                all.append(contentsOf: rowTx)
+                continue
             }
+
+            // 2) Если PDFKit отдал таблицу по колонкам — пробуем column-wise fallback
+            let columnTx = extractColumnWise(from: cleaned)
+            all.append(contentsOf: columnTx)
         }
 
-        if pages.isEmpty {
-            return ParseResult(transactions: [], errors: ["PDF без текста (похоже на скан)"])
+        if all.isEmpty {
+            return ParseResult(transactions: [], errors: ["Транзакции не найдены. Проверь формат выписки."])
         }
 
-        // Нормализуем каждую страницу отдельно (убираем только лишние пробелы,
-        // но НЕ трогаем переносы строк — они нужны для парсинга)
-        let fullText = pages
-            .map { normalizePage($0) }
-            .joined(separator: "\n")
-
-        // Ищем начало таблицы транзакций
-        let tableMarkers = [
-            "Date Amount Transaction Details",
-            "Дата Сумма Транзакция Детали",
-            "Дата Сумма Тип транзакции Детали",
-            "Date Amount Type Details",
-            "Date Amount Transaction type Details",
-            "Күні Сомасы Транзакция Мәліметтер",
-        ]
-
-        var tableText: String? = nil
-        for marker in tableMarkers {
-            if let range = fullText.range(of: marker, options: .caseInsensitive) {
-                tableText = String(fullText[range.upperBound...])
-                break
-            }
-        }
-
-        // Если заголовок не найден — ищем первую транзакцию напрямую
-        if tableText == nil {
-            if let firstTxRange = findFirstTransactionRange(in: fullText) {
-                tableText = String(fullText[firstTxRange...])
-            }
-        }
-
-        guard let body = tableText else {
-            return ParseResult(
-                transactions: [],
-                errors: ["Не нашёл таблицу транзакций. Возможно, нестандартный формат выписки."]
-            )
-        }
-
-        let txs = extractTransactions(from: body)
-
-        if txs.isEmpty {
-            return ParseResult(
-                transactions: [],
-                errors: ["Транзакции не найдены. Проверь формат выписки."]
-            )
-        }
-
-        return ParseResult(transactions: txs, errors: [])
-    }
-
-    // MARK: - Find first transaction when header is missing
-
-    private func findFirstTransactionRange(in text: String) -> String.Index? {
-        let pattern = #"\d{2}\.\d{2}\.\d{2,4}\s*[+\-]\s*[\d\s]+,\d{2}\s*₸"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range, in: text) else { return nil }
-        return range.lowerBound
-    }
-
-    // MARK: - Core extraction
-
-    private func extractTransactions(from text: String) -> [Transaction] {
-        // ИСПРАВЛЕНИЕ 2: Новая стратегия — ищем строки-заголовки транзакций
-        // Формат Kaspi: дата стоит в начале строки, потом знак и сумма
-        // Многостраничный PDF: между транзакциями могут быть переносы страниц,
-        // повторяющиеся заголовки таблицы, номера страниц — всё это фильтруем
-
-        // Шаг 1: разбиваем текст на строки
-        let lines = text.components(separatedBy: "\n")
-
-        // Шаг 2: "склеиваем" строки обратно в плоский текст с сохранением структуры
-        // но убирая мусорные строки (пустые, заголовки таблиц, номера страниц)
-        let cleaned = cleanLines(lines)
-
-        // Шаг 3: применяем основной regex
-        // Паттерн: дата [+/-] сумма ₸ ТИП детали
-        // Используем lookahead на следующую транзакцию как разделитель
-        let datePattern = #"\d{2}\.\d{2}\.\d{2,4}"#
-        let amountPattern = #"[+\-]\s*[\d\s]+,\d{2}\s*₸"#
-        let txStartPattern = "(\(datePattern))\\s*(\(amountPattern))"
-
-        guard let startRegex = try? NSRegularExpression(pattern: txStartPattern) else { return [] }
-
-        let ns = cleaned as NSString
-        let matches = startRegex.matches(in: cleaned, range: NSRange(location: 0, length: ns.length))
-
-        var results: [Transaction] = []
-
-        for (i, match) in matches.enumerated() {
-            let matchStart = match.range.location
-            let matchEnd   = match.range.location + match.range.length
-
-            // Получаем "хвост" до следующей транзакции или конец текста
-            let nextStart = i + 1 < matches.count ? matches[i + 1].range.location : ns.length
-            let tailRange = NSRange(location: matchEnd, length: nextStart - matchEnd)
-            let tail = ns.substring(with: tailRange)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Дата
-            let dateStr = ns.substring(with: match.range(at: 1))
-            guard let date = parseDate(dateStr) else { continue }
-
-            // Знак и сумма
-            let amountRaw = ns.substring(with: match.range(at: 2))
-            let sign: Double = amountRaw.hasPrefix("-") ? -1 : 1
-            let amountDigits = amountRaw
-                .replacingOccurrences(of: "+", with: "")
-                .replacingOccurrences(of: "-", with: "")
-                .replacingOccurrences(of: "₸", with: "")
-            guard let absAmount = parseMoney(amountDigits) else { continue }
-            let amount = sign * absAmount
-
-            // Тип транзакции + детали из хвоста
-            let merchantAndDetails = sanitizeTail(tail)
-
-            // Детерминированный id
-            let txId = "\(dateStr)_\(Int(absAmount))_\(merchantAndDetails.prefix(30))"
-                .replacingOccurrences(of: " ", with: "_")
-
-            results.append(Transaction(
-                id: txId,
-                date: date,
-                amount: amount,
-                merchant: merchantAndDetails,
-                details: merchantAndDetails,
-                category: Categorizer.categorize(merchant: merchantAndDetails, details: merchantAndDetails)
-            ))
-        }
-
-        // Дедупликация по id
         var seen = Set<String>()
-        results = results.filter { seen.insert($0.id).inserted }
-        results.sort { $0.date > $1.date }
-        return results
+        let deduped = all.filter { tx in
+            let key = [
+                isoDay(tx.date),
+                String(format: "%.2f", tx.amount),
+                normalizeKey(tx.merchant),
+                normalizeKey(tx.details)
+            ].joined(separator: "|")
+            return seen.insert(key).inserted
+        }
+        .sorted { $0.date > $1.date }
+
+        return ParseResult(transactions: deduped, errors: [])
     }
 
-    // MARK: - Line cleaning
+    // MARK: - Row-wise
 
-    // Убирает мусорные строки: заголовки таблиц, номера страниц, пустые строки
-    private func cleanLines(_ lines: [String]) -> String {
-        let headerKeywords = [
-            "date amount", "дата сумма", "transaction details",
-            "транзакция детали", "тип транзакции", "page ", "страниц",
-            "күні сомасы", "выписка по", "account statement",
-            "kaspi bank", "каспи банк", "period:", "период:",
-            "opening balance", "closing balance", "начальный остаток", "конечный остаток"
-        ]
+    private func extractRowWise(from text: String) -> [Transaction] {
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !isGarbageLine($0) }
 
-        var cleaned: [String] = []
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
+        var result: [Transaction] = []
+        var i = 0
 
-            let lower = trimmed.lowercased()
-            let isHeader = headerKeywords.contains { lower.contains($0) }
-            // Строка из одного числа — номер страницы
-            let isPageNumber = trimmed.range(of: #"^\d{1,4}$"#, options: .regularExpression) != nil
-
-            if !isHeader && !isPageNumber {
-                cleaned.append(trimmed)
+        while i < lines.count {
+            let line = lines[i]
+            if let parsed = parseTransactionRow(line, nextLine: i + 1 < lines.count ? lines[i + 1] : nil) {
+                result.append(parsed.transaction)
+                i += parsed.linesConsumed
+            } else {
+                i += 1
             }
         }
 
-        // Возвращаем как единую строку — транзакции на одной строке или через пробел
-        return cleaned.joined(separator: " ")
+        return result
     }
 
-    // MARK: - Tail sanitization
+    private func parseTransactionRow(_ line: String, nextLine: String?) -> (transaction: Transaction, linesConsumed: Int)? {
+        let pattern = #"^(\d{2}\.\d{2}\.\d{2,4})\s*([+\-]\s*[\d\s]+,\d{2}\s*₸)\s+(Purchases|Transfers|Replenishment|Withdrawals|Others)\s*(.*)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
 
-    private let typeWords: Set<String> = [
-        "purchases", "transfers", "replenishment", "withdrawals", "others",
-        "salary", "deposit", "from", "to"
-    ]
+        let ns = line as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard let m = regex.firstMatch(in: line, options: [], range: full) else { return nil }
 
-    private func sanitizeTail(_ tail: String) -> String {
-        let collapsed = tail
-            .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateStr = ns.substring(with: m.range(at: 1))
+        let amountRaw = ns.substring(with: m.range(at: 2))
+        let type = ns.substring(with: m.range(at: 3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        var detail = ns.substring(with: m.range(at: 4)).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !collapsed.isEmpty else { return "—" }
-
-        // Убираем ведущие технические слова (Purchases, Transfers и т.п.)
-        let tokens = collapsed.split(separator: " ").map { String($0) }
-        var idx = 0
-        while idx < tokens.count && typeWords.contains(tokens[idx].lowercased()) {
-            idx += 1
+        var consumed = 1
+        if let nextLine, isCurrencyContinuationLine(nextLine) {
+            consumed = 2
         }
 
-        let result = tokens[idx...].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return result.isEmpty ? collapsed : result
+        guard let tx = buildTransaction(dateStr: dateStr, amountRaw: amountRaw, type: type, detail: detail) else { return nil }
+        if detail.isEmpty { detail = "—" }
+        return (tx, consumed)
     }
 
-    // MARK: - Helpers
+    // MARK: - Column-wise fallback
+
+    private func extractColumnWise(from text: String) -> [Transaction] {
+        // PDFKit иногда отдаёт таблицу так:
+        // [все суммы]\n[все типы]\n[все детали]\n[все даты]
+        // или [даты][суммы][типы][детали].
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !isGarbageLine($0) }
+            .filter { !isCurrencyContinuationLine($0) }
+
+        let joined = lines.joined(separator: "\n")
+
+        let dates = matches(of: #"\b\d{2}\.\d{2}\.\d{2,4}\b"#, in: joined)
+        let amounts = matches(of: #"[+\-]\s*[\d\s]+,\d{2}\s*₸"#, in: joined)
+        let types = matches(of: #"\b(?:Purchases|Transfers|Replenishment|Withdrawals|Others)\b"#, in: joined, options: [.caseInsensitive])
+
+        guard !dates.isEmpty, dates.count == amounts.count, amounts.count == types.count else {
+            return []
+        }
+
+        // Удаляем из текста даты/суммы/типы, остаток считаем details-блоком.
+        var detailsBlob = joined
+        for token in (dates + amounts + types) {
+            detailsBlob = detailsBlob.replacingOccurrences(of: token, with: " ")
+        }
+
+        let detailLines = detailsBlob
+            .components(separatedBy: .newlines)
+            .map { $0.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !isGarbageLine($0) }
+
+        var details = splitDetails(detailLines, expectedCount: dates.count)
+        if details.count < dates.count {
+            details += Array(repeating: "—", count: dates.count - details.count)
+        }
+        if details.count > dates.count {
+            details = Array(details.prefix(dates.count))
+        }
+
+        var result: [Transaction] = []
+        for idx in 0..<dates.count {
+            if let tx = buildTransaction(dateStr: dates[idx], amountRaw: amounts[idx], type: types[idx], detail: details[idx]) {
+                result.append(tx)
+            }
+        }
+        return result
+    }
+
+    private func splitDetails(_ detailLines: [String], expectedCount: Int) -> [String] {
+        // В лучшем случае PDFKit уже дал по одному detail на строку.
+        if detailLines.count == expectedCount {
+            return detailLines
+        }
+
+        // Частый кейс: одна огромная строка с деталями, разделёнными несколькими пробелами.
+        let merged = detailLines.joined(separator: " ")
+            .replacingOccurrences(of: "\\s{2,}", with: " | ", options: .regularExpression)
+        let pipeParts = merged.split(separator: "|").map {
+            String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        if pipeParts.count == expectedCount {
+            return pipeParts
+        }
+
+        // Если деталей меньше, чем операций, оставляем как есть — недостающие дополним "—".
+        return detailLines
+    }
+
+    // MARK: - Build transaction
+
+    private func buildTransaction(dateStr: String, amountRaw: String, type: String, detail: String) -> Transaction? {
+        guard let date = parseDate(dateStr) else { return nil }
+
+        let sign: Double = amountRaw.trimmingCharacters(in: .whitespaces).hasPrefix("-") ? -1 : 1
+        let amountDigits = amountRaw
+            .replacingOccurrences(of: "+", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "₸", with: "")
+
+        guard let absAmount = parseMoney(amountDigits) else { return nil }
+        let amount = sign * absAmount
+
+        let safeDetail = detail.isEmpty ? "—" : detail
+        let safeType = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fullDetails = "\(safeType) \(safeDetail)".trimmingCharacters(in: .whitespacesAndNewlines)
+        let txId = makeStableID(dateStr: dateStr, amount: amount, type: safeType, detail: safeDetail)
+
+        return Transaction(
+            id: txId,
+            date: date,
+            amount: amount,
+            merchant: safeDetail,
+            details: fullDetails,
+            category: Categorizer.categorize(merchant: safeDetail, details: fullDetails)
+        )
+    }
+
+    // MARK: - Cleaning helpers
+
+    private func stripKaspiPageArtifacts(from text: String) -> String {
+        let patterns = [
+            #"(?im)^\s*JSC «Kaspi Bank», BIC CASPKZKA, www\.kaspi\.kz\s*$"#,
+            #"(?im)^\s*JSC \"Kaspi Bank\", BIC CASPKZKA, www\.kaspi\.kz\s*$"#,
+            #"(?im)^\s*АО «Kaspi Bank», БИК CASPKZKA, www\.kaspi\.kz\s*$"#,
+            #"(?im)^\s*Kaspi Bank, BIC CASPKZKA, www\.kaspi\.kz\s*$"#,
+            #"(?im)^\s*www\.kaspi\.kz\s*$"#
+        ]
+
+        var cleaned = text
+        for pattern in patterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return cleaned
+    }
+
+    private func normalizePage(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+            .map { $0.replacingOccurrences(of: "  +", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+    }
+
+    private func isGarbageLine(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        let snippets = [
+            "date amount", "transaction details", "дата сумма", "күні сомасы",
+            "kaspi gold", "balance statement", "account number", "card number",
+            "transaction summary", "cash withdrawal limits", "card balance",
+            "currency:", "opening balance", "closing balance", "period from",
+            "page ", "страниц"
+        ]
+        if snippets.contains(where: { lower.contains($0) }) { return true }
+        if line.range(of: #"^\d{1,4}$"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
+    private func isCurrencyContinuationLine(_ line: String) -> Bool {
+        line.range(of: #"^\(?\s*[-+]\s*\d+[\d\s]*,\d{2}\s*[A-Z]{3}\s*\)?$"#, options: .regularExpression) != nil
+    }
+
+    private func matches(of pattern: String, in text: String, options: NSRegularExpression.Options = []) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return [] }
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
+    }
 
     private func parseDate(_ s: String) -> Date? {
         let df = DateFormatter()
@@ -247,19 +276,22 @@ final class KaspiPDFParser {
         return Double(cleaned)
     }
 
-    // ИСПРАВЛЕНИЕ 3: normalizePage НЕ убивает переносы строк
-    // Только убирает неразрывные пробелы и лишние пробелы внутри строки
-    private func normalizePage(_ text: String) -> String {
-        return text
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            // Убираем множественные пробелы внутри строки, но не трогаем \n
-            .components(separatedBy: "\n")
-            .map { line in
-                line.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespaces)
-            }
-            .joined(separator: "\n")
+    private func makeStableID(dateStr: String, amount: Double, type: String, detail: String) -> String {
+        [dateStr, String(format: "%.2f", amount), normalizeKey(type), normalizeKey(detail)].joined(separator: "_")
+    }
+
+    private func normalizeKey(_ s: String) -> String {
+        s.lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: "_", options: .regularExpression)
+            .replacingOccurrences(of: #"[^a-zа-яё0-9_қғәіңөұүһ\-*./]"#, with: "", options: .regularExpression)
+    }
+
+    private func isoDay(_ d: Date) -> String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = .current
+        df.dateFormat = "yyyy-MM-dd"
+        return df.string(from: d)
     }
 }
+

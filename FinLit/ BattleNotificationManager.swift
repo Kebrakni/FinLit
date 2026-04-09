@@ -37,20 +37,20 @@ final class BattleNotificationManager {
         // 1) Каждое воскресенье в 19:00 — напоминание загрузить выписку
         scheduleWeekly(
             id: weeklyReminderID,
-            weekday: 1,  // 1 = воскресенье (Apple нумерация: 1=вс, 2=пн ... 7=сб)
+            weekday: 1,
             hour: 19,
             minute: 0,
-            title: "⚔️ Битва накоплений",
+            title: "Битва накоплений",
             body: "Загрузи выписку за эту неделю, чтобы обновить счёт в баттле!"
         )
 
         // 2) Каждый понедельник в 9:00 — если кто-то ещё не загрузил
         scheduleWeekly(
             id: mondayMorningID,
-            weekday: 2,  // 2 = понедельник
+            weekday: 2,
             hour: 9,
             minute: 0,
-            title: "📊 Не забудь про баттл",
+            title: "Не забудь про баттл",
             body: "Новая неделя — новая выписка! Зайди в Аналитику и загрузи PDF из Kaspi."
         )
     }
@@ -74,7 +74,7 @@ final class BattleNotificationManager {
 
         sendImmediate(
             id: "opponent_update_\(opponentName)_\(Int(Date().timeIntervalSince1970))",
-            title: "⚔️ \(opponentName) обновил(а) счёт!",
+            title: "\(opponentName) обновил(а) счёт!",
             body: "Теперь у \(opponentName): \(sign)\(amountStr) ₸. Не отставай!"
         )
     }

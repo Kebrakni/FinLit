@@ -162,10 +162,30 @@ final class BattleCell: UITableViewCell {
 
     func configure(participant: BattleParticipant, rank: Int, isMe: Bool) {
         switch rank {
-        case 1: rankLabel.text = "🥇"
-        case 2: rankLabel.text = "🥈"
-        case 3: rankLabel.text = "🥉"
-        default: rankLabel.text = "\(rank)"
+        case 1:
+            rankLabel.text = nil
+            let img = UIImage(systemName: "medal.fill")
+            let attachment = NSTextAttachment()
+            attachment.image = img?.withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
+            attachment.bounds = CGRect(x: 0, y: -4, width: 22, height: 22)
+            rankLabel.attributedText = NSAttributedString(attachment: attachment)
+        case 2:
+            rankLabel.text = nil
+            let img = UIImage(systemName: "medal.fill")
+            let attachment = NSTextAttachment()
+            attachment.image = img?.withTintColor(.systemGray2, renderingMode: .alwaysOriginal)
+            attachment.bounds = CGRect(x: 0, y: -4, width: 22, height: 22)
+            rankLabel.attributedText = NSAttributedString(attachment: attachment)
+        case 3:
+            rankLabel.text = nil
+            let img = UIImage(systemName: "medal.fill")
+            let attachment = NSTextAttachment()
+            attachment.image = img?.withTintColor(.systemOrange, renderingMode: .alwaysOriginal)
+            attachment.bounds = CGRect(x: 0, y: -4, width: 22, height: 22)
+            rankLabel.attributedText = NSAttributedString(attachment: attachment)
+        default:
+            rankLabel.attributedText = nil
+            rankLabel.text = "\(rank)"
         }
 
         nameLabel.text = isMe ? "\(participant.name) (Ты)" : participant.name
@@ -185,7 +205,16 @@ final class BattleCell: UITableViewCell {
         amountLabel.text  = "\(isNeg ? "-" : "+")\(absStr) ₸"
         amountLabel.textColor = isNeg ? .systemRed : .systemGreen
 
-        statusBadge.text = isNeg ? "  📉 в минусе  " : "  📈 в плюсе  "
+        let badgeSymbol = isNeg ? "chart.line.downtrend.xyaxis" : "chart.line.uptrend.xyaxis"
+        let badgeImg = UIImage(systemName: badgeSymbol)?.withRenderingMode(.alwaysOriginal)
+            .withTintColor(isNeg ? .systemRed : .systemGreen)
+        let badgeAttachment = NSTextAttachment()
+        badgeAttachment.image = badgeImg
+        badgeAttachment.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)
+        let badgeAttr = NSMutableAttributedString(string: "  ")
+        badgeAttr.append(NSAttributedString(attachment: badgeAttachment))
+        badgeAttr.append(NSAttributedString(string: isNeg ? " в минусе  " : " в плюсе  "))
+        statusBadge.attributedText = badgeAttr
         statusBadge.backgroundColor = isNeg
             ? UIColor.systemRed.withAlphaComponent(0.15)
             : UIColor.systemGreen.withAlphaComponent(0.15)
@@ -250,7 +279,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "⚔️ Битва накоплений"
+        title = "Битва накоплений"
         view.backgroundColor = .systemBackground
         setupNav()
         setupUI()
@@ -291,22 +320,22 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     @objc private func showMenu() {
         let sheet = UIAlertController(title: "Баттл", message: nil, preferredStyle: .actionSheet)
 
-        sheet.addAction(UIAlertAction(title: "🏠 Создать комнату", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: "Создать комнату", style: .default) { [weak self] _ in
             self?.didTapCreateRoom()
         })
-        sheet.addAction(UIAlertAction(title: "🔑 Войти по коду", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: "Войти по коду", style: .default) { [weak self] _ in
             self?.didTapJoinRoom()
         })
         if currentRoomId != nil {
-            sheet.addAction(UIAlertAction(title: "📋 Скопировать код комнаты", style: .default) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: "Скопировать код комнаты", style: .default) { [weak self] _ in
                 UIPasteboard.general.string = self?.currentRoomId
                 self?.showBanner("Код скопирован!")
             })
-            sheet.addAction(UIAlertAction(title: "🚪 Покинуть комнату", style: .destructive) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: "Покинуть комнату", style: .destructive) { [weak self] _ in
                 self?.leaveRoom()
             })
         }
-        sheet.addAction(UIAlertAction(title: "👤 Моё имя", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: "Моё имя", style: .default) { [weak self] _ in
             self?.didTapChangeName()
         })
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
@@ -320,7 +349,11 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         headerContainer.translatesAutoresizingMaskIntoConstraints = false
 
         trophyLabel.translatesAutoresizingMaskIntoConstraints = false
-        trophyLabel.text = "🏆"; trophyLabel.font = .systemFont(ofSize: 44)
+        let trophyImage = UIImage(systemName: "trophy.fill")
+        let trophyAttachment = NSTextAttachment()
+        trophyAttachment.image = trophyImage?.withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
+        trophyAttachment.bounds = CGRect(x: 0, y: -6, width: 44, height: 44)
+        trophyLabel.attributedText = NSAttributedString(attachment: trophyAttachment)
         trophyLabel.textAlignment = .center
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -476,7 +509,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
                 // Покажем код чтобы поделиться
                 let share = UIAlertController(
-                    title: "Комната создана! 🏆",
+                    title: "Комната создана!",
                     message: "Код для друга:\n\n\(roomId)\n\nОтправь этот код другу — он введёт его через «Войти по коду»",
                     preferredStyle: .alert
                 )
@@ -546,7 +579,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                     self.updateActionButton()
                     // Запланировать еженедельные напоминания
                     BattleNotificationManager.shared.requestPermissionAndSchedule()
-                    self.showBanner("✅ Ты в комнате \(code)!")
+                    self.showBanner("Ты в комнате \(code)!")
                 }
             }
         })
@@ -708,7 +741,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func updateRoomCodeLabel() {
         if let code = currentRoomId {
-            roomCodeLabel.text = "📡 Код комнаты: \(code)  (нажми ··· чтобы скопировать)"
+            roomCodeLabel.text = "Код комнаты: \(code)  (нажми ··· чтобы скопировать)"
             roomCodeLabel.isHidden = false
         } else {
             roomCodeLabel.text = "Нет активной комнаты"
@@ -719,9 +752,9 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func updateActionButton() {
         if currentRoomId == nil {
-            actionButton.setTitle("⚔️  Создать или войти в комнату", for: .normal)
+            actionButton.setTitle("Создать или войти в комнату", for: .normal)
         } else {
-            actionButton.setTitle("👥  Пригласить друга (скопировать код)", for: .normal)
+            actionButton.setTitle("Пригласить друга (скопировать код)", for: .normal)
         }
     }
 

@@ -47,7 +47,10 @@ final class AnalyticsViewController: UIViewController,
     private func setupUI() {
         // Import button
         importButton.translatesAutoresizingMaskIntoConstraints = false
-        importButton.setTitle("📄  Загрузить PDF выписку", for: .normal)
+        importButton.setTitle("Загрузить PDF выписку", for: .normal)
+        importButton.setImage(UIImage(systemName: "doc.badge.arrow.up"), for: .normal)
+        importButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 8)
+        importButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0)
         importButton.backgroundColor = .systemBlue
         importButton.tintColor = .white
         importButton.layer.cornerRadius = 14
@@ -57,7 +60,10 @@ final class AnalyticsViewController: UIViewController,
 
         // Reset button
         resetButton.translatesAutoresizingMaskIntoConstraints = false
-        resetButton.setTitle("🗑 Сбросить все выписки", for: .normal)
+        resetButton.setTitle("Сбросить все выписки", for: .normal)
+        resetButton.setImage(UIImage(systemName: "trash"), for: .normal)
+        resetButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 6)
+        resetButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 0)
         resetButton.tintColor = .systemRed
         resetButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
         resetButton.addTarget(self, action: #selector(didTapReset), for: .touchUpInside)
@@ -195,7 +201,7 @@ final class AnalyticsViewController: UIViewController,
             let from = df.string(from: sorted.first!.date)
             let to   = df.string(from: sorted.last!.date)
             showAlert(
-                title: "⚠️ Выписка уже загружена",
+                title: "Выписка уже загружена",
                 message: "Эта выписка (\(from) – \(to), \(result.transactions.count) транзакций) уже была использована ранее и не будет добавлена повторно."
             )
             return
@@ -219,7 +225,7 @@ final class AnalyticsViewController: UIViewController,
         let from = df.string(from: sorted.first!.date)
         let to   = df.string(from: sorted.last!.date)
         showAlert(
-            title: "✅ Выписка добавлена",
+            title: "Выписка добавлена",
             message: "Добавлено \(result.transactions.count) транзакций (\(from) – \(to))\nВсего накоплено: \(allTransactions.count) транзакций"
         )
     }
@@ -276,7 +282,7 @@ final class AnalyticsViewController: UIViewController,
         let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
         let fromDate = df.string(from: sorted.first!.date)
         let toDate   = df.string(from: sorted.last!.date)
-        statLabel.text = "📅 \(fromDate) – \(toDate)  •  \(allTransactions.count) транзакций"
+        statLabel.text = "\(fromDate) – \(toDate)  •  \(allTransactions.count) транзакций"
 
         incomeRow.setValue(formatMoneyAbs(totalIncome))
         expenseRow.setValue(formatMoneyAbs(totalExpense))
@@ -287,10 +293,10 @@ final class AnalyticsViewController: UIViewController,
         battleBanner.isHidden = false
         if netSavings >= 0 {
             battleBanner.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.85)
-            battleLabel.text = "⚔️ Битва: +\(formatMoneyAbs(netSavings)) — твой счёт обновлён"
+            battleLabel.text = "Битва: +\(formatMoneyAbs(netSavings)) — твой счёт обновлён"
         } else {
             battleBanner.backgroundColor = UIColor.systemRed.withAlphaComponent(0.85)
-            battleLabel.text = "⚔️ Битва: \(formatMoneyNet(netSavings)) — расходы превышают доходы"
+            battleLabel.text = "Битва: \(formatMoneyNet(netSavings)) — расходы превышают доходы"
         }
     }
 
