@@ -5,13 +5,14 @@ final class AppStorage {
     private init() {}
 
     private let goalKey             = "goal_key_v1"
+    private let goalsKey            = "goals_key_v2"       // NEW: multiple goals
     private let challengesKey       = "challenges_key_v1"
     private let battleKey           = "battle_participants_v1"
     private let allTransactionsKey  = "all_transactions_v2"
     private let fingerprintsKey     = "used_pdf_fingerprints_v1"
     private let netSavingsKey       = "pdf_net_savings_v1"
 
-    // MARK: - Goal
+    // MARK: - Goal (single — kept for backwards compat)
 
     func loadGoal() -> Goal {
         if let data = UserDefaults.standard.data(forKey: goalKey),
@@ -23,6 +24,26 @@ final class AppStorage {
         if let data = try? JSONEncoder().encode(goal) {
             UserDefaults.standard.set(data, forKey: goalKey)
         }
+    }
+
+    // MARK: - Goals (multiple) NEW
+
+    func loadGoals() -> [Goal] {
+        // Try new multi-goal storage first
+        if let data = UserDefaults.standard.data(forKey: goalsKey),
+           let goals = try? JSONDecoder().decode([Goal].self, from: data) {
+            return goals
+        }
+        // Migrate from single goal if it exists
+        return [loadGoal()]
+    }
+
+    func saveGoals(_ goals: [Goal]) {
+        if let data = try? JSONEncoder().encode(goals) {
+            UserDefaults.standard.set(data, forKey: goalsKey)
+        }
+        // Keep the first goal in sync with the legacy key so old code doesn't break
+        if let first = goals.first { saveGoal(first) }
     }
 
     // MARK: - Challenges
@@ -61,8 +82,6 @@ final class AppStorage {
         return items
     }
 
-    /// Добавляет новые транзакции к накопленным (дедупликация по id)
-    /// Возвращает весь накопленный список
     @discardableResult
     func mergeTransactions(_ newTxs: [Transaction]) -> [Transaction] {
         var existing = loadAllTransactions()
@@ -76,7 +95,6 @@ final class AppStorage {
         return existing
     }
 
-    /// Сброс всех данных
     func clearAllTransactions() {
         UserDefaults.standard.removeObject(forKey: allTransactionsKey)
         UserDefaults.standard.removeObject(forKey: fingerprintsKey)
@@ -91,7 +109,6 @@ final class AppStorage {
 
     // MARK: - Duplicate Detection
 
-    /// Fingerprint = "minDate|maxDate|count"
     func makeFingerprint(_ transactions: [Transaction]) -> String {
         guard !transactions.isEmpty else { return "empty" }
         let sorted = transactions.sorted { $0.date < $1.date }
@@ -115,7 +132,6 @@ final class AppStorage {
 
     // MARK: - Net Savings
 
-    /// Пересчитывает net по ВСЕМ накопленным транзакциям и сохраняет
     func recalculateAndSaveNet() {
         let all = loadAllTransactions()
         let income  = all.filter { $0.amount > 0 }.reduce(0.0) { $0 + $1.amount }
@@ -124,7 +140,6 @@ final class AppStorage {
 
         UserDefaults.standard.set(net, forKey: netSavingsKey)
 
-        // Обновляем Battle
         var participants = loadBattleParticipants()
         let myId = "me_local"
         if let idx = participants.firstIndex(where: { $0.id == myId }) {

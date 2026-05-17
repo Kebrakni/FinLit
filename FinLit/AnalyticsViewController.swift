@@ -1,4 +1,9 @@
 // AnalyticsViewController.swift
+// Изменения относительно оригинала:
+//   - После парсинга PDF транзакции с category == .other (неизвестные Purchases)
+//     отправляются пакетом в Gemini для уточнения категории.
+//   - Кнопка импорта блокируется на время AI-классификации, показывается индикатор.
+
 import UIKit
 import MobileCoreServices
 import UniformTypeIdentifiers
@@ -10,7 +15,6 @@ final class AnalyticsViewController: UIViewController,
 
     private let pdfParser = KaspiPDFParser()
 
-    // Все накопленные транзакции (из всех загруженных выписок)
     private var allTransactions: [Transaction] = []
     private var expenseTotals: [(TxCategory, Double)] = []
     private var incomeTotals:  [(TxCategory, Double)] = []
@@ -27,9 +31,15 @@ final class AnalyticsViewController: UIViewController,
     private let incomeRow     = SummaryRow(icon: "arrow.down.circle.fill",     color: .systemGreen, title: "Доходы (все выписки)")
     private let expenseRow    = SummaryRow(icon: "arrow.up.circle.fill",       color: .systemRed,   title: "Расходы (все выписки)")
     private let netRow        = SummaryRow(icon: "chart.line.uptrend.xyaxis",  color: .systemBlue,  title: "Чистые накопления")
-    private let statLabel     = UILabel()   // сколько выписок загружено
+    private let statLabel     = UILabel()
     private let battleBanner  = UIView()
     private let battleLabel   = UILabel()
+    private let aiStatusLabel = UILabel()   // NEW: показывает прогресс Gemini
+
+    private let spendingCard  = UIView()
+    private let spendingTitle = UILabel()
+    private let spendingBar   = SpendingBreakdownBar()
+
     private let tableView     = UITableView(frame: .zero, style: .insetGrouped)
 
     // MARK: - Lifecycle
@@ -45,7 +55,6 @@ final class AnalyticsViewController: UIViewController,
     // MARK: - Setup
 
     private func setupUI() {
-        // Import button
         importButton.translatesAutoresizingMaskIntoConstraints = false
         importButton.setTitle("📄  Загрузить PDF выписку", for: .normal)
         importButton.backgroundColor = .systemBlue
@@ -55,20 +64,24 @@ final class AnalyticsViewController: UIViewController,
         importButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         importButton.addTarget(self, action: #selector(importPDF), for: .touchUpInside)
 
-        // Reset button
         resetButton.translatesAutoresizingMaskIntoConstraints = false
         resetButton.setTitle("🗑 Сбросить все выписки", for: .normal)
         resetButton.tintColor = .systemRed
         resetButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
         resetButton.addTarget(self, action: #selector(didTapReset), for: .touchUpInside)
 
-        // Stat label
         statLabel.translatesAutoresizingMaskIntoConstraints = false
         statLabel.font = .systemFont(ofSize: 12)
         statLabel.textColor = .secondaryLabel
         statLabel.textAlignment = .center
 
-        // Summary card
+        // NEW: AI status label
+        aiStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        aiStatusLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        aiStatusLabel.textColor = .systemBlue
+        aiStatusLabel.textAlignment = .center
+        aiStatusLabel.isHidden = true
+
         summaryCard.translatesAutoresizingMaskIntoConstraints = false
         summaryCard.backgroundColor = .secondarySystemBackground
         summaryCard.layer.cornerRadius = 18
@@ -78,7 +91,20 @@ final class AnalyticsViewController: UIViewController,
             summaryCard.addSubview(row)
         }
 
-        // Battle banner
+        spendingCard.translatesAutoresizingMaskIntoConstraints = false
+        spendingCard.backgroundColor = .secondarySystemBackground
+        spendingCard.layer.cornerRadius = 18
+        spendingCard.isHidden = true
+
+        spendingTitle.translatesAutoresizingMaskIntoConstraints = false
+        spendingTitle.text = "Расходы по категориям"
+        spendingTitle.font = .systemFont(ofSize: 14, weight: .semibold)
+        spendingTitle.textColor = .secondaryLabel
+
+        spendingBar.translatesAutoresizingMaskIntoConstraints = false
+        spendingCard.addSubview(spendingTitle)
+        spendingCard.addSubview(spendingBar)
+
         battleBanner.translatesAutoresizingMaskIntoConstraints = false
         battleBanner.layer.cornerRadius = 14
         battleBanner.isHidden = true
@@ -90,7 +116,6 @@ final class AnalyticsViewController: UIViewController,
         battleLabel.numberOfLines = 2
         battleBanner.addSubview(battleLabel)
 
-        // Table
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate   = self
@@ -98,7 +123,9 @@ final class AnalyticsViewController: UIViewController,
         view.addSubview(importButton)
         view.addSubview(resetButton)
         view.addSubview(statLabel)
+        view.addSubview(aiStatusLabel)
         view.addSubview(summaryCard)
+        view.addSubview(spendingCard)
         view.addSubview(battleBanner)
         view.addSubview(tableView)
 
@@ -114,7 +141,12 @@ final class AnalyticsViewController: UIViewController,
             statLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             statLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
-            summaryCard.topAnchor.constraint(equalTo: statLabel.bottomAnchor, constant: 10),
+            // NEW: AI status below stat label
+            aiStatusLabel.topAnchor.constraint(equalTo: statLabel.bottomAnchor, constant: 2),
+            aiStatusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            aiStatusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+
+            summaryCard.topAnchor.constraint(equalTo: aiStatusLabel.bottomAnchor, constant: 10),
             summaryCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             summaryCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
@@ -131,7 +163,20 @@ final class AnalyticsViewController: UIViewController,
             netRow.trailingAnchor.constraint(equalTo: summaryCard.trailingAnchor, constant: -12),
             netRow.bottomAnchor.constraint(equalTo: summaryCard.bottomAnchor, constant: -12),
 
-            battleBanner.topAnchor.constraint(equalTo: summaryCard.bottomAnchor, constant: 10),
+            spendingCard.topAnchor.constraint(equalTo: summaryCard.bottomAnchor, constant: 10),
+            spendingCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            spendingCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+
+            spendingTitle.topAnchor.constraint(equalTo: spendingCard.topAnchor, constant: 12),
+            spendingTitle.leadingAnchor.constraint(equalTo: spendingCard.leadingAnchor, constant: 14),
+            spendingTitle.trailingAnchor.constraint(equalTo: spendingCard.trailingAnchor, constant: -14),
+
+            spendingBar.topAnchor.constraint(equalTo: spendingTitle.bottomAnchor, constant: 10),
+            spendingBar.leadingAnchor.constraint(equalTo: spendingCard.leadingAnchor, constant: 14),
+            spendingBar.trailingAnchor.constraint(equalTo: spendingCard.trailingAnchor, constant: -14),
+            spendingBar.bottomAnchor.constraint(equalTo: spendingCard.bottomAnchor, constant: -14),
+
+            battleBanner.topAnchor.constraint(equalTo: spendingCard.bottomAnchor, constant: 10),
             battleBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             battleBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
@@ -181,39 +226,41 @@ final class AnalyticsViewController: UIViewController,
             showAlert(title: "Ошибка парсинга", message: result.errors.prefix(5).joined(separator: "\n"))
             return
         }
-
         guard !result.transactions.isEmpty else {
             showAlert(title: "Пусто", message: "Транзакции не найдены в этом PDF")
             return
         }
 
-        // Проверка на дубликат выписки
         let fingerprint = AppStorage.shared.makeFingerprint(result.transactions)
         if AppStorage.shared.isAlreadyImported(fingerprint) {
             let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
             let sorted = result.transactions.sorted { $0.date < $1.date }
-            let from = df.string(from: sorted.first!.date)
-            let to   = df.string(from: sorted.last!.date)
             showAlert(
+<<<<<<< Updated upstream
                 title: "⚠️ Выписка уже загружена",
                 message: "Эта выписка (\(from) – \(to), \(result.transactions.count) транзакций) уже была использована ранее и не будет добавлена повторно."
+=======
+                title: "Выписка уже загружена",
+                message: "Эта выписка (\(df.string(from: sorted.first!.date)) – \(df.string(from: sorted.last!.date)), \(result.transactions.count) транзакций) уже была использована ранее."
+>>>>>>> Stashed changes
             )
             return
         }
 
-        // Сохраняем fingerprint
         AppStorage.shared.markAsImported(fingerprint)
 
-        // Добавляем транзакции к накопленным
+        // ── Шаг 1: сохраняем транзакции с rule-based категориями ──
         allTransactions = AppStorage.shared.mergeTransactions(result.transactions)
-
-        // Пересчитываем net и обновляем Battle
         AppStorage.shared.recalculateAndSaveNet()
+        recompute(); render(); tableView.reloadData()
 
-        recompute()
-        render()
-        tableView.reloadData()
+        // ── Шаг 2: Gemini AI улучшает категории для неопознанных Purchases ──
+        let unknownTxs = allTransactions.filter {
+            // Переводы и внутренние переводы оставляем как есть — Gemini их не улучшит
+            $0.category != .transfers && $0.category != .internalTransfers
+        }
 
+<<<<<<< Updated upstream
         let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
         let sorted = result.transactions.sorted { $0.date < $1.date }
         let from = df.string(from: sorted.first!.date)
@@ -222,6 +269,74 @@ final class AnalyticsViewController: UIViewController,
             title: "✅ Выписка добавлена",
             message: "Добавлено \(result.transactions.count) транзакций (\(from) – \(to))\nВсего накоплено: \(allTransactions.count) транзакций"
         )
+=======
+        guard !unknownTxs.isEmpty else {
+            let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
+            let sorted = result.transactions.sorted { $0.date < $1.date }
+            showAlert(
+                title: "Выписка добавлена",
+                message: "Добавлено \(result.transactions.count) транзакций (\(df.string(from: sorted.first!.date)) – \(df.string(from: sorted.last!.date)))\nВсего: \(allTransactions.count) транзакций"
+            )
+            return
+        }
+
+        // Показываем статус AI
+        importButton.isEnabled = false
+        importButton.alpha = 0.5
+        aiStatusLabel.isHidden = false
+        aiStatusLabel.text = "🤖 Gemini классифицирует \(unknownTxs.count) неопознанных транзакций..."
+
+        let pairs = unknownTxs.map { (merchant: $0.merchant, details: $0.details) }
+
+        GeminiCategorizer.shared.classifyBatch(transactions: pairs) { [weak self] categories in
+            guard let self else { return }
+
+            // Применяем полученные категории
+            var updatedAll = self.allTransactions
+            for (idx, tx) in unknownTxs.enumerated() {
+                guard idx < categories.count else { continue }
+                let newCategory = categories[idx]
+                guard newCategory != .other else { continue } // не менять если всё ещё .other
+
+                // Ищем транзакцию в allTransactions и пересоздаём с новой категорией
+                if let i = updatedAll.firstIndex(where: { $0.id == tx.id }) {
+                    let old = updatedAll[i]
+                    updatedAll[i] = Transaction(
+                        id: old.id,
+                        date: old.date,
+                        amount: old.amount,
+                        merchant: old.merchant,
+                        details: old.details,
+                        category: newCategory
+                    )
+                }
+            }
+
+            // Сохраняем обновлённые транзакции напрямую через UserDefaults
+            if let data = try? JSONEncoder().encode(updatedAll) {
+                UserDefaults.standard.set(data, forKey: "all_transactions_v2")
+            }
+
+            self.allTransactions = updatedAll
+            AppStorage.shared.recalculateAndSaveNet()
+            self.recompute()
+            self.render()
+            self.tableView.reloadData()
+
+            // Убираем статус AI
+            self.importButton.isEnabled = true
+            self.importButton.alpha = 1.0
+            self.aiStatusLabel.isHidden = true
+
+            let improved = categories.filter { $0 != .other }.count
+            let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
+            let sorted = result.transactions.sorted { $0.date < $1.date }
+            self.showAlert(
+                title: "Выписка добавлена",
+                message: "Добавлено \(result.transactions.count) транзакций (\(df.string(from: sorted.first!.date)) – \(df.string(from: sorted.last!.date)))\nGemini уточнил категории для \(improved) из \(unknownTxs.count) транзакций.\nВсего: \(self.allTransactions.count) транзакций"
+            )
+        }
+>>>>>>> Stashed changes
     }
 
     // MARK: - Reset
@@ -268,22 +383,28 @@ final class AnalyticsViewController: UIViewController,
             netRow.setValue("—")
             statLabel.text = "Выписки не загружены"
             battleBanner.isHidden = true
+            spendingCard.isHidden = true
             return
         }
 
-        // Диапазон дат
         let sorted = allTransactions.sorted { $0.date < $1.date }
         let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
+<<<<<<< Updated upstream
         let fromDate = df.string(from: sorted.first!.date)
         let toDate   = df.string(from: sorted.last!.date)
         statLabel.text = "📅 \(fromDate) – \(toDate)  •  \(allTransactions.count) транзакций"
+=======
+        statLabel.text = "\(df.string(from: sorted.first!.date)) – \(df.string(from: sorted.last!.date))  •  \(allTransactions.count) транзакций"
+>>>>>>> Stashed changes
 
         incomeRow.setValue(formatMoneyAbs(totalIncome))
         expenseRow.setValue(formatMoneyAbs(totalExpense))
         netRow.setValue(formatMoneyNet(netSavings))
         netRow.setValueColor(netSavings >= 0 ? .systemGreen : .systemRed)
 
-        // Battle banner
+        spendingCard.isHidden = expenseTotals.isEmpty
+        spendingBar.configure(totals: expenseTotals)
+
         battleBanner.isHidden = false
         if netSavings >= 0 {
             battleBanner.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.85)
@@ -346,7 +467,7 @@ final class AnalyticsViewController: UIViewController,
     }
 }
 
-// MARK: - SummaryRow
+// MARK: - SummaryRow (без изменений)
 
 final class SummaryRow: UIView {
     private let iconView  = UIImageView()
@@ -355,40 +476,183 @@ final class SummaryRow: UIView {
 
     init(icon: String, color: UIColor, title: String) {
         super.init(frame: .zero)
-
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.image = UIImage(systemName: icon); iconView.tintColor = color
         iconView.contentMode = .scaleAspectFit
-
         titleLbl.translatesAutoresizingMaskIntoConstraints = false
         titleLbl.text = title; titleLbl.font = .systemFont(ofSize: 14)
         titleLbl.textColor = .secondaryLabel
-
         valueLbl.translatesAutoresizingMaskIntoConstraints = false
         valueLbl.font = .systemFont(ofSize: 15, weight: .semibold)
         valueLbl.textColor = color; valueLbl.textAlignment = .right; valueLbl.text = "—"
-
         addSubview(iconView); addSubview(titleLbl); addSubview(valueLbl)
-
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
-
             titleLbl.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             titleLbl.centerYAnchor.constraint(equalTo: centerYAnchor),
-
             valueLbl.trailingAnchor.constraint(equalTo: trailingAnchor),
             valueLbl.centerYAnchor.constraint(equalTo: centerYAnchor),
             valueLbl.leadingAnchor.constraint(greaterThanOrEqualTo: titleLbl.trailingAnchor, constant: 8),
-
             heightAnchor.constraint(equalToConstant: 36),
         ])
     }
-
     required init?(coder: NSCoder) { fatalError() }
-
     func setValue(_ text: String) { valueLbl.text = text }
     func setValueColor(_ color: UIColor) { valueLbl.textColor = color }
+}
+
+// MARK: - SpendingBreakdownBar (без изменений)
+
+final class SpendingBreakdownBar: UIView {
+
+    private let barContainer = UIView()
+    private let legendStack  = UIStackView()
+    private var segments: [(color: UIColor, fraction: CGFloat)] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        barContainer.translatesAutoresizingMaskIntoConstraints = false
+        barContainer.layer.cornerRadius = 8
+        barContainer.clipsToBounds = true
+        barContainer.backgroundColor = .systemFill
+
+        legendStack.translatesAutoresizingMaskIntoConstraints = false
+        legendStack.axis    = .vertical
+        legendStack.spacing = 5
+
+        addSubview(barContainer)
+        addSubview(legendStack)
+
+        NSLayoutConstraint.activate([
+            barContainer.topAnchor.constraint(equalTo: topAnchor),
+            barContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            barContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            barContainer.heightAnchor.constraint(equalToConstant: 22),
+
+            legendStack.topAnchor.constraint(equalTo: barContainer.bottomAnchor, constant: 10),
+            legendStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            legendStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            legendStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    func configure(totals: [(TxCategory, Double)]) {
+        barContainer.subviews.forEach { $0.removeFromSuperview() }
+        legendStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let totalAmt = totals.reduce(0.0) { $0 + $1.1 }
+        guard totalAmt > 0 else { return }
+
+        var items = totals.filter { $0.1 / totalAmt >= 0.01 }
+        let smallAmt = totals.filter { $0.1 / totalAmt < 0.01 }.reduce(0.0) { $0 + $1.1 }
+
+        if smallAmt > 0 {
+            if let idx = items.firstIndex(where: { $0.0 == .other }) {
+                items[idx] = (.other, items[idx].1 + smallAmt)
+            } else {
+                items.append((.other, smallAmt))
+            }
+        }
+
+        segments = items.map { (categoryColor($0.0), CGFloat($0.1 / totalAmt)) }
+
+        for seg in segments {
+            let v = UIView()
+            v.backgroundColor = seg.color
+            barContainer.addSubview(v)
+        }
+
+        let rows = stride(from: 0, to: items.count, by: 2).map {
+            Array(items[$0..<min($0 + 2, items.count)])
+        }
+        for pair in rows {
+            let hStack = UIStackView()
+            hStack.axis         = .horizontal
+            hStack.spacing      = 12
+            hStack.distribution = .fillEqually
+            for (cat, amt) in pair {
+                let pct = Int(round(amt / totalAmt * 100))
+                hStack.addArrangedSubview(legendItem(color: categoryColor(cat),
+                                                     name: cat.rawValue,
+                                                     percent: "\(pct)%"))
+            }
+            legendStack.addArrangedSubview(hStack)
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let totalWidth = barContainer.bounds.width
+        guard totalWidth > 0, !segments.isEmpty,
+              barContainer.subviews.count == segments.count else { return }
+        var x: CGFloat = 0
+        for (i, seg) in segments.enumerated() {
+            let view = barContainer.subviews[i]
+            let w: CGFloat = i == segments.count - 1
+                ? totalWidth - x
+                : floor(totalWidth * seg.fraction)
+            view.frame = CGRect(x: x, y: 0, width: max(w, 0), height: barContainer.bounds.height)
+            x += w
+        }
+    }
+
+    private func legendItem(color: UIColor, name: String, percent: String) -> UIView {
+        let hStack = UIStackView()
+        hStack.axis      = .horizontal
+        hStack.spacing   = 5
+        hStack.alignment = .center
+
+        let dot = UIView()
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.backgroundColor  = color
+        dot.layer.cornerRadius = 4
+        NSLayoutConstraint.activate([
+            dot.widthAnchor.constraint(equalToConstant: 8),
+            dot.heightAnchor.constraint(equalToConstant: 8),
+        ])
+
+        let nameLbl = UILabel()
+        nameLbl.text      = name
+        nameLbl.font      = .systemFont(ofSize: 11)
+        nameLbl.textColor = .secondaryLabel
+        nameLbl.lineBreakMode = .byTruncatingTail
+        nameLbl.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let pctLbl = UILabel()
+        pctLbl.text      = percent
+        pctLbl.font      = .systemFont(ofSize: 12, weight: .bold)
+        pctLbl.textColor = .label
+        pctLbl.setContentHuggingPriority(.required, for: .horizontal)
+
+        hStack.addArrangedSubview(dot)
+        hStack.addArrangedSubview(nameLbl)
+        hStack.addArrangedSubview(pctLbl)
+        return hStack
+    }
+
+    private func categoryColor(_ cat: TxCategory) -> UIColor {
+        switch cat {
+        case .food:              return UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1)
+        case .cafes:             return UIColor(red: 1.00, green: 0.55, blue: 0.00, alpha: 1)
+        case .transport:         return UIColor(red: 0.20, green: 0.50, blue: 1.00, alpha: 1)
+        case .subscriptions:     return UIColor(red: 0.60, green: 0.20, blue: 0.90, alpha: 1)
+        case .utilities:         return UIColor(red: 0.95, green: 0.75, blue: 0.00, alpha: 1)
+        case .shopping:          return UIColor(red: 1.00, green: 0.25, blue: 0.45, alpha: 1)
+        case .health:            return UIColor(red: 1.00, green: 0.18, blue: 0.18, alpha: 1)
+        case .education:         return UIColor(red: 0.00, green: 0.70, blue: 0.70, alpha: 1)
+        case .entertainment:     return UIColor(red: 0.35, green: 0.35, blue: 0.85, alpha: 1)
+        case .transfers:         return UIColor(red: 0.55, green: 0.55, blue: 0.60, alpha: 1)
+        case .internalTransfers: return UIColor(red: 0.72, green: 0.72, blue: 0.75, alpha: 1)
+        case .other:             return UIColor(red: 0.80, green: 0.80, blue: 0.82, alpha: 1)
+        }
+    }
 }

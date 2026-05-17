@@ -2,131 +2,308 @@ import UIKit
 
 final class HomeViewController: UIViewController {
 
-    private var goal: Goal = AppStorage.shared.loadGoal()
+    private var goals: [Goal] = []
 
-    // UI
-    private let cardView = UIView()
-    private let titleLabel = UILabel()
-    private let amountsLabel = UILabel()
-    private let progressView = UIProgressView(progressViewStyle: .default)
-    private let progressPercentLabel = UILabel()
-    private let addButton = UIButton(type: .system)
+    // MARK: - UI
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let fabButton = UIButton(type: .system)
+    private let emptyLabel = UILabel()
+
+    // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Goals"
+        title = "Мои цели"
         view.backgroundColor = .systemBackground
-        setupUI()
-        render()
+        setupTableView()
+        setupFAB()
+        setupEmptyLabel()
     }
 
-    private func setupUI() {
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = .secondarySystemBackground
-        cardView.layer.cornerRadius = 16
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        goals = AppStorage.shared.loadGoals()
+        updateEmpty()
+        tableView.reloadData()
+    }
 
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
-        titleLabel.numberOfLines = 2
+    // MARK: - Setup
 
-        amountsLabel.translatesAutoresizingMaskIntoConstraints = false
-        amountsLabel.font = .systemFont(ofSize: 16, weight: .regular)
-        amountsLabel.textColor = .secondaryLabel
-        amountsLabel.numberOfLines = 2
-
-        progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.layer.cornerRadius = 4
-        progressView.clipsToBounds = true
-
-        progressPercentLabel.translatesAutoresizingMaskIntoConstraints = false
-        progressPercentLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        progressPercentLabel.textColor = .secondaryLabel
-
-        addButton.translatesAutoresizingMaskIntoConstraints = false
-        addButton.setTitle("Я отложил", for: .normal)
-        addButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        addButton.backgroundColor = .systemBlue
-        addButton.tintColor = .white
-        addButton.layer.cornerRadius = 12
-        addButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
-        addButton.addTarget(self, action: #selector(didTapAdd), for: .touchUpInside)
-
-        view.addSubview(cardView)
-        cardView.addSubview(titleLabel)
-        cardView.addSubview(amountsLabel)
-        cardView.addSubview(progressView)
-        cardView.addSubview(progressPercentLabel)
-        cardView.addSubview(addButton)
-
+    private func setupTableView() {
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.dataSource = self
+        tableView.delegate   = self
+        tableView.register(GoalCell.self, forCellReuseIdentifier: GoalCell.reuseID)
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 120
+        view.addSubview(tableView)
         NSLayoutConstraint.activate([
-            cardView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            cardView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-
-            titleLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-
-            amountsLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            amountsLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            amountsLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-
-            progressView.topAnchor.constraint(equalTo: amountsLabel.bottomAnchor, constant: 16),
-            progressView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            progressView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-            progressView.heightAnchor.constraint(equalToConstant: 8),
-
-            progressPercentLabel.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 8),
-            progressPercentLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            progressPercentLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-
-            addButton.topAnchor.constraint(equalTo: progressPercentLabel.bottomAnchor, constant: 16),
-            addButton.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            addButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-            addButton.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
-    private func render() {
-        titleLabel.text = goal.title
-
-        let saved = formatMoney(goal.savedAmount)
-        let target = formatMoney(goal.targetAmount)
-        amountsLabel.text = "Saved: \(saved) / \(target)"
-
-        let p = Float(goal.progress)
-        progressView.setProgress(p, animated: true)
-        progressPercentLabel.text = "Progress: \(Int(goal.progress * 100))%"
+    private func setupFAB() {
+        fabButton.translatesAutoresizingMaskIntoConstraints = false
+        let config = UIImage.SymbolConfiguration(pointSize: 26, weight: .medium)
+        fabButton.setImage(UIImage(systemName: "plus", withConfiguration: config), for: .normal)
+        fabButton.tintColor = .white
+        fabButton.backgroundColor = .systemBlue
+        fabButton.layer.cornerRadius = 30
+        fabButton.layer.shadowColor  = UIColor.black.cgColor
+        fabButton.layer.shadowOpacity = 0.25
+        fabButton.layer.shadowOffset  = CGSize(width: 0, height: 4)
+        fabButton.layer.shadowRadius  = 8
+        fabButton.addTarget(self, action: #selector(didTapFAB), for: .touchUpInside)
+        view.addSubview(fabButton)
+        NSLayoutConstraint.activate([
+            fabButton.widthAnchor.constraint(equalToConstant: 60),
+            fabButton.heightAnchor.constraint(equalToConstant: 60),
+            fabButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            fabButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
+        ])
     }
 
-    @objc private func didTapAdd() {
-        // Простое окно ввода суммы
-        let alert = UIAlertController(title: "Сколько отложил(а)?",
-                                      message: "Введи сумму",
-                                      preferredStyle: .alert)
+    private func setupEmptyLabel() {
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyLabel.text = "Нет целей.\nНажми + чтобы добавить первую цель"
+        emptyLabel.numberOfLines = 0
+        emptyLabel.textAlignment = .center
+        emptyLabel.textColor = .secondaryLabel
+        emptyLabel.font = .systemFont(ofSize: 16)
+        view.addSubview(emptyLabel)
+        NSLayoutConstraint.activate([
+            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40),
+            emptyLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
+        ])
+    }
+
+    private func updateEmpty() {
+        emptyLabel.isHidden = !goals.isEmpty
+        tableView.isHidden  = goals.isEmpty
+    }
+
+    // MARK: - Actions
+
+    @objc private func didTapFAB() {
+        showAddGoalAlert()
+    }
+
+    private func showAddGoalAlert() {
+        let alert = UIAlertController(title: "Новая цель", message: nil, preferredStyle: .alert)
         alert.addTextField { tf in
-            tf.placeholder = "например 5000"
+            tf.placeholder = "Название (например: iPhone)"
+        }
+        alert.addTextField { tf in
+            tf.placeholder = "Сумма цели (₸)"
             tf.keyboardType = .numberPad
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Add", style: .default, handler: { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Создать", style: .default) { [weak self] _ in
             guard let self else { return }
-            let text = alert.textFields?.first?.text ?? ""
-            let value = Double(text.replacingOccurrences(of: " ", with: "")) ?? 0
-            guard value > 0 else { return }
+            let name   = alert.textFields?[0].text?.trimmingCharacters(in: .whitespaces) ?? ""
+            let rawAmt = alert.textFields?[1].text?.replacingOccurrences(of: " ", with: "") ?? ""
+            let target = Double(rawAmt) ?? 0
+            guard !name.isEmpty, target > 0 else { return }
 
-            self.goal.savedAmount += value
-            AppStorage.shared.saveGoal(self.goal)
-            self.render()
-        }))
+            var goals = AppStorage.shared.loadGoals()
+            goals.append(Goal(title: name, targetAmount: target, savedAmount: 0, deadline: nil))
+            AppStorage.shared.saveGoals(goals)
+            self.goals = goals
+            self.updateEmpty()
+            self.tableView.reloadData()
+        })
         present(alert, animated: true)
     }
 
-    private func formatMoney(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
-        let s = formatter.string(from: NSNumber(value: value)) ?? "\(Int(value))"
-        return "\(s) ₸"
+    private func showAddSavingsAlert(for index: Int) {
+        let goal = goals[index]
+        let alert = UIAlertController(
+            title: "Пополнить «\(goal.title)»",
+            message: "Сколько отложил(а)?",
+            preferredStyle: .alert
+        )
+        alert.addTextField { tf in
+            tf.placeholder = "Сумма"
+            tf.keyboardType = .numberPad
+        }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Добавить", style: .default) { [weak self] _ in
+            guard let self else { return }
+            let raw   = alert.textFields?.first?.text?.replacingOccurrences(of: " ", with: "") ?? ""
+            let value = Double(raw) ?? 0
+            guard value > 0 else { return }
+            self.goals[index].savedAmount += value
+            AppStorage.shared.saveGoals(self.goals)
+            self.tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .automatic)
+        })
+        present(alert, animated: true)
+    }
+}
+
+// MARK: - UITableViewDataSource / Delegate
+
+extension HomeViewController: UITableViewDataSource, UITableViewDelegate {
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        goals.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: GoalCell.reuseID, for: indexPath) as! GoalCell
+        cell.configure(with: goals[indexPath.row])
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        showAddSavingsAlert(for: indexPath.row)
+    }
+
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
+    -> UISwipeActionsConfiguration? {
+        let delete = UIContextualAction(style: .destructive, title: "Удалить") { [weak self] _, _, done in
+            guard let self else { done(false); return }
+            self.goals.remove(at: indexPath.row)
+            AppStorage.shared.saveGoals(self.goals)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+            self.updateEmpty()
+            done(true)
+        }
+        delete.image = UIImage(systemName: "trash")
+        return UISwipeActionsConfiguration(actions: [delete])
+    }
+}
+
+// MARK: - GoalCell
+
+final class GoalCell: UITableViewCell {
+
+    static let reuseID = "GoalCell"
+
+    private let titleLabel   = UILabel()
+    private let amountsLabel = UILabel()
+    private let progressBg   = UIView()
+    private let progressFill = UIView()
+    private let percentLabel = UILabel()
+    private let addHint      = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupUI()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupUI() {
+        selectionStyle = .none
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
+        titleLabel.numberOfLines = 2
+
+        amountsLabel.translatesAutoresizingMaskIntoConstraints = false
+        amountsLabel.font = .systemFont(ofSize: 14)
+        amountsLabel.textColor = .secondaryLabel
+
+        progressBg.translatesAutoresizingMaskIntoConstraints = false
+        progressBg.backgroundColor = .systemFill
+        progressBg.layer.cornerRadius = 6
+        progressBg.clipsToBounds = true
+
+        progressFill.translatesAutoresizingMaskIntoConstraints = false
+        progressFill.backgroundColor = .systemBlue
+        progressFill.layer.cornerRadius = 6
+
+        percentLabel.translatesAutoresizingMaskIntoConstraints = false
+        percentLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        percentLabel.textColor = .secondaryLabel
+
+        addHint.translatesAutoresizingMaskIntoConstraints = false
+        addHint.text = "Нажми чтобы пополнить →"
+        addHint.font = .systemFont(ofSize: 12)
+        addHint.textColor = .systemBlue
+
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(amountsLabel)
+        contentView.addSubview(progressBg)
+        progressBg.addSubview(progressFill)
+        contentView.addSubview(percentLabel)
+        contentView.addSubview(addHint)
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            amountsLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            amountsLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            amountsLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            progressBg.topAnchor.constraint(equalTo: amountsLabel.bottomAnchor, constant: 12),
+            progressBg.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            progressBg.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            progressBg.heightAnchor.constraint(equalToConstant: 12),
+
+            progressFill.topAnchor.constraint(equalTo: progressBg.topAnchor),
+            progressFill.leadingAnchor.constraint(equalTo: progressBg.leadingAnchor),
+            progressFill.bottomAnchor.constraint(equalTo: progressBg.bottomAnchor),
+
+            percentLabel.topAnchor.constraint(equalTo: progressBg.bottomAnchor, constant: 6),
+            percentLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+
+            addHint.centerYAnchor.constraint(equalTo: percentLabel.centerYAnchor),
+            addHint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            addHint.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+        ])
+    }
+
+    // Stores width constraint so we can update it
+    private var fillWidthConstraint: NSLayoutConstraint?
+
+    func configure(with goal: Goal) {
+        titleLabel.text = goal.title
+
+        let saved  = formatMoney(goal.savedAmount)
+        let target = formatMoney(goal.targetAmount)
+        amountsLabel.text = "\(saved) из \(target)"
+
+        let pct = Int(goal.progress * 100)
+        percentLabel.text = "\(pct)%"
+
+        // Color fill by progress
+        if goal.progress >= 1 {
+            progressFill.backgroundColor = .systemGreen
+            addHint.text = "✓ Цель достигнута!"
+            addHint.textColor = .systemGreen
+        } else if goal.progress >= 0.75 {
+            progressFill.backgroundColor = .systemBlue
+            addHint.text = "Нажми чтобы пополнить →"
+            addHint.textColor = .systemBlue
+        } else {
+            progressFill.backgroundColor = .systemBlue
+            addHint.text = "Нажми чтобы пополнить →"
+            addHint.textColor = .systemBlue
+        }
+
+        // Update fill width constraint
+        fillWidthConstraint?.isActive = false
+        fillWidthConstraint = progressFill.widthAnchor.constraint(
+            equalTo: progressBg.widthAnchor,
+            multiplier: CGFloat(max(0.02, min(goal.progress, 1.0)))
+        )
+        fillWidthConstraint?.isActive = true
+    }
+
+    private func formatMoney(_ v: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        return "\(f.string(from: NSNumber(value: v)) ?? "0") ₸"
     }
 }
