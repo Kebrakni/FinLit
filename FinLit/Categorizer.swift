@@ -2,64 +2,118 @@
 //  Categorizer.swift
 //  FinLit
 //
-//  Created by Arnur Inkarbek on 01.03.2026.
-//
-
 
 import Foundation
 
 final class Categorizer {
 
     static func categorize(merchant: String, details: String) -> TxCategory {
-        let type = merchant.lowercased()
         let text = (merchant + " " + details).lowercased()
+        let detailsLow = details.lowercased()
 
-        // 0) ДЕПОЗИТЫ / НАКОПЛЕНИЯ (самое важное под твой PDF)
-        // примеры у тебя: "From Kaspi Deposit", "To Kaspi Deposit", "Отбасы банк. Пополнение депозита"
+        // 0) Internal transfers: Kaspi Deposit, ATM deposits, Kaspi Pay internal
         if containsAny(text, [
-            "kaspi deposit",
-            "from kaspi deposit",
-            "to kaspi deposit",
-            "отбасы банк. пополнение депозита",
-            "пополнение депозита",
-            "deposit", "депозит", "накоп", "savings"
+            "kaspi deposit", "пополнение депозита", "депозит",
+            "from my current account kaspi pay",
+            "at kaspi atm", "in the kaspi terminal"
         ]) {
             return .internalTransfers
         }
 
-        // 1) Комиссии (Others)
-        if containsAny(text, ["commission for transfer of other banks", "комис"]) {
-            return .utilities
+        // 1) Loan / credit payments (Kaspi Red, Kaspi Credit)
+        if containsAny(text, [
+            "pay for kaspi red", "pay for kaspi credit",
+            "kaspi red", "kaspi credit"
+        ]) {
+            return .loans
         }
 
-        // 2) Подписки
-        if containsAny(text, ["google *play", "apple.com", "spotify", "netflix", "youtube premium", "subscription"]) {
+        // 2) Taxes, fines, government fees
+        if containsAny(text, [
+            "штраф", "налог", "tax", "fine", "penalty", "фискал"
+        ]) {
+            return .taxes
+        }
+
+        // 3) Digital subscriptions & cloud services
+        if containsAny(text, [
+            "google *play", "google play", "apple.com",
+            "spotify", "netflix", "youtube premium",
+            "aws emea", "aws ", "amazon web", "subscription"
+        ]) {
             return .subscriptions
         }
 
-        // 3) Транспорт
-        if containsAny(text, ["avtobys", "onay", "yandex.go", "uber", "taxi", "такси"]) {
+        // 4) Transport
+        if containsAny(text, [
+            "avtobys", "onay", "yandex.go", "uber", "taxi", "такси",
+            "проезда по qr", "пригород", "автобус"
+        ]) {
             return .transport
         }
 
-        // 4) Связь
-        if containsAny(text, ["tele2", "beeline", "kcell", "telecom", "қазақтелеком"]) {
+        // 5) Telecom + transfer commissions
+        if containsAny(text, [
+            "tele2", "beeline", "kcell", "telecom", "қазақтелеком", "казахтелеком",
+            "commission for transfer of other banks", "комис"
+        ]) {
             return .utilities
         }
 
-        // 5) Продукты / супермаркеты
-        if containsAny(text, ["magnum", "small", "my mart", "market", "grocery", "супермаркет"]) {
+        // 6) Water delivery, utilities supplies, self-service terminals
+        if containsAny(text, [
+            "аквафор", "aquafor", "novy filter", "чистая вода",
+            "аппарат самообслуживания"
+        ]) {
+            return .utilities
+        }
+
+        // 7) Grocery / supermarkets
+        if containsAny(text, [
+            "magnum", "small", "my mart", "grocery", "супермаркет",
+            "магазин fresh", "овощи", "фрукты"
+        ]) {
             return .food
         }
 
-        // 6) Еда/доставка
-        if containsAny(text, ["wolt", "yandex.eda", "kfc", "popeyes", "starbucks", "cafe", "coffee"]) {
+        // 8) Cafes, restaurants, food delivery
+        if containsAny(text, [
+            "wolt", "yandex.eda", "kfc", "popeyes", "starbucks",
+            "cafe", "coffee", "кофейн", "ресторан",
+            "bal samsa", "бал самса", "онигири", "нори",
+            "prime kitchen", "hardee", "самса", "шаурма"
+        ]) {
             return .cafes
         }
 
-        // 7) Переводы между людьми / карты
-        if type == "transfers" || containsAny(text, ["to card", "p2p", "card2card", "перевод"]) {
+        // 9) Electronics, tech, online retail
+        if containsAny(text, [
+            "cyberland", "apple city", "mobileprofi", "arduparts",
+            "blisstay", "rosana", "arnatop", "smarttrade", "qpick",
+            "alim store", "delta_", "star_shop", "v-com", "edera",
+            "тини той", "триумф"
+        ]) {
+            return .shopping
+        }
+
+        // --- Type-based fallback rules (use the leading transaction type in details) ---
+
+        if detailsLow.hasPrefix("withdrawals") {
+            return .cashWithdrawals
+        }
+
+        if detailsLow.hasPrefix("transfers") {
             return .transfers
+        }
+
+        if detailsLow.hasPrefix("replenishment") {
+            // Receiving money from someone = incoming transfer
+            return .transfers
+        }
+
+        if detailsLow.hasPrefix("purchases") {
+            // Unknown purchase merchant → shopping
+            return .shopping
         }
 
         return .other

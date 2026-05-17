@@ -313,10 +313,20 @@ final class AnalyticsViewController: UIViewController,
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        let cell: UITableViewCell
+        if let c = tableView.dequeueReusableCell(withIdentifier: "AnalyticsCell") {
+            cell = c
+        } else {
+            cell = UITableViewCell(style: .value1, reuseIdentifier: "AnalyticsCell")
+        }
         let item = indexPath.section == 0 ? expenseTotals[indexPath.row] : incomeTotals[indexPath.row]
-        cell.textLabel?.text = item.0.rawValue
+        let cat = item.0
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        cell.imageView?.image = UIImage(systemName: cat.icon, withConfiguration: iconConfig)?
+            .withTintColor(cat.uiColor, renderingMode: .alwaysOriginal)
+        cell.textLabel?.text = cat.rawValue
         cell.detailTextLabel?.text = formatMoneyAbs(item.1)
+        cell.detailTextLabel?.textColor = indexPath.section == 0 ? .systemRed : .systemGreen
         cell.accessoryType = .disclosureIndicator
         return cell
     }

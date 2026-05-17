@@ -16,6 +16,20 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private lazy var dateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "ru_RU")
+        df.dateFormat = "dd.MM.yyyy"
+        return df
+    }()
+
+    private lazy var numberFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        return f
+    }()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -23,6 +37,9 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.separatorStyle = .none
+        tableView.backgroundColor = .systemBackground
+        tableView.register(TransactionCell.self, forCellReuseIdentifier: "TxCell")
 
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
@@ -38,30 +55,19 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "TxCell", for: indexPath) as! TransactionCell
         let tx = transactions[indexPath.row]
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.text = tx.merchant
-        cell.textLabel?.numberOfLines = 0
-        cell.detailTextLabel?.text = "\(formatDate(tx.date)) • \(formatMoneySigned(tx.amount))"
-        cell.detailTextLabel?.textColor = .secondaryLabel
+        let amount = "\(tx.amount < 0 ? "-" : "+")\(numberFormatter.string(from: NSNumber(value: abs(tx.amount))) ?? "0") ₸"
+        cell.configure(with: tx, date: dateFormatter.string(from: tx.date), amount: amount)
         return cell
     }
 
-    private func formatMoneySigned(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
-        let absVal = abs(value)
-        let s = formatter.string(from: NSNumber(value: absVal)) ?? "0"
-        let sign = value < 0 ? "-" : "+"
-        return "\(sign)\(s) ₸"
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        UITableView.automaticDimension
     }
 
-    private func formatDate(_ d: Date) -> String {
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "ru_RU")
-        df.dateFormat = "dd.MM.yyyy"
-        return df.string(from: d)
+    func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        80
     }
 }
 
