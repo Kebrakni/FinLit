@@ -14,6 +14,9 @@ final class MainTabBarController: UITabBarController {
         let analytics = UINavigationController(rootViewController: AnalyticsViewController())
         analytics.tabBarItem = UITabBarItem(title: "Analytics", image: UIImage(systemName: "chart.pie"), tag: 2)
 
-        viewControllers = [home, battle, analytics]
+        let aiAnalyzer = UINavigationController(rootViewController: AIAnalyzerViewController())
+        aiAnalyzer.tabBarItem = UITabBarItem(title: "AI Анализ", image: UIImage(systemName: "sparkles"), tag: 3)
+
+        viewControllers = [home, battle, analytics, aiAnalyzer]
     }
 }

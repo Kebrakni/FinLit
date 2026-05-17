@@ -10,6 +10,7 @@ final class AppStorage {
     private let allTransactionsKey  = "all_transactions_v2"
     private let fingerprintsKey     = "used_pdf_fingerprints_v1"
     private let netSavingsKey       = "pdf_net_savings_v1"
+    private let categoryOverridesKey = "category_overrides_v1"
 
     // MARK: - Goal
 
@@ -143,6 +144,40 @@ final class AppStorage {
 
     func loadPDFNetSavings() -> Double {
         UserDefaults.standard.double(forKey: netSavingsKey)
+    }
+
+    // MARK: - Category Overrides
+
+    /// Returns all manually overridden category mappings: transactionId → category name
+    func loadCategoryOverrides() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: categoryOverridesKey) as? [String: String] ?? [:]
+    }
+
+    /// Saves or updates a single category override for a transaction
+    func saveCategoryOverride(transactionId: String, categoryName: String) {
+        var overrides = loadCategoryOverrides()
+        overrides[transactionId] = categoryName
+        UserDefaults.standard.set(overrides, forKey: categoryOverridesKey)
+    }
+
+    /// Removes a category override for a transaction (reverts to auto-categorization)
+    func removeCategoryOverride(transactionId: String) {
+        var overrides = loadCategoryOverrides()
+        overrides.removeValue(forKey: transactionId)
+        UserDefaults.standard.set(overrides, forKey: categoryOverridesKey)
+    }
+
+    /// Loads all transactions with category overrides applied
+    func loadAllTransactionsWithOverrides() -> [Transaction] {
+        let txs = loadAllTransactions()
+        let overrides = loadCategoryOverrides()
+        guard !overrides.isEmpty else { return txs }
+        return txs.map { tx in
+            guard let name = overrides[tx.id],
+                  let cat = TxCategory(rawValue: name) else { return tx }
+            return Transaction(id: tx.id, date: tx.date, amount: tx.amount,
+                               merchant: tx.merchant, details: tx.details, category: cat)
+        }
     }
 }
 
