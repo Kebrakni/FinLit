@@ -43,6 +43,49 @@ enum TxCategory: String, CaseIterable, Hashable, Codable {
     case internalTransfers = "Внутренние переводы"
     case other           = "Другое"
 
+    /// Stable, language-independent value used in the AI API contract.
+    /// Keep `rawValue` in Russian because it is part of the app's persisted/UI data.
+    var aiCode: String {
+        switch self {
+        case .food:              return "food"
+        case .cafes:             return "cafes"
+        case .transport:         return "transport"
+        case .entertainment:     return "entertainment"
+        case .health:            return "health"
+        case .education:         return "education"
+        case .utilities:         return "utilities"
+        case .subscriptions:     return "subscriptions"
+        case .shopping:          return "shopping"
+        case .loans:             return "loans"
+        case .taxes:             return "taxes"
+        case .cashWithdrawals:   return "cash_withdrawals"
+        case .transfers:         return "transfers"
+        case .internalTransfers: return "internal_transfers"
+        case .other:             return "other"
+        }
+    }
+
+    init?(aiCode: String) {
+        switch aiCode.lowercased() {
+        case "food":              self = .food
+        case "cafes", "cafe":    self = .cafes
+        case "transport":         self = .transport
+        case "entertainment":     self = .entertainment
+        case "health":            self = .health
+        case "education":         self = .education
+        case "utilities":         self = .utilities
+        case "subscriptions":     self = .subscriptions
+        case "shopping":          self = .shopping
+        case "loans":             self = .loans
+        case "taxes":             self = .taxes
+        case "cash_withdrawals":  self = .cashWithdrawals
+        case "transfers":         self = .transfers
+        case "internal_transfers": self = .internalTransfers
+        case "other":             self = .other
+        default:                   return nil
+        }
+    }
+
     var icon: String {
         switch self {
         case .food:              return "cart.fill"
@@ -100,5 +143,10 @@ struct Transaction: Codable, Identifiable {
         self.merchant = merchant
         self.details = details
         self.category = category
+    }
+
+    func withCategory(_ category: TxCategory) -> Transaction {
+        Transaction(id: id, date: date, amount: amount, merchant: merchant,
+                    details: details, category: category)
     }
 }

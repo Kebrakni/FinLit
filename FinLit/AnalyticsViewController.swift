@@ -181,14 +181,18 @@ final class AnalyticsViewController: UIViewController,
         let started = url.startAccessingSecurityScopedResource()
         defer { if started { url.stopAccessingSecurityScopedResource() } }
 
+        setImporting(true)
+
         let result = pdfParser.parse(pdfURL: url)
 
         if !result.errors.isEmpty {
+            setImporting(false)
             showAlert(title: "Ошибка парсинга", message: result.errors.prefix(5).joined(separator: "\n"))
             return
         }
 
         guard !result.transactions.isEmpty else {
+            setImporting(false)
             showAlert(title: "Пусто", message: "Транзакции не найдены в этом PDF")
             return
         }
@@ -200,6 +204,7 @@ final class AnalyticsViewController: UIViewController,
             let sorted = result.transactions.sorted { $0.date < $1.date }
             let from = df.string(from: sorted.first!.date)
             let to   = df.string(from: sorted.last!.date)
+            setImporting(false)
             showAlert(
                 title: "Выписка уже загружена",
                 message: "Эта выписка (\(from) – \(to), \(result.transactions.count) транзакций) уже была использована ранее и не будет добавлена повторно."
@@ -207,27 +212,60 @@ final class AnalyticsViewController: UIViewController,
             return
         }
 
-        // Сохраняем fingerprint
+        let parsedTransactions = result.transactions
+        Task { [weak self] in
+            guard let self else { return }
+
+            var categorizedTransactions = parsedTransactions
+            var aiWasUsed = false
+
+            do {
+                let categories = try await OpenRouterCategorizer.shared.categorize(parsedTransactions)
+                categorizedTransactions = parsedTransactions.map { transaction in
+                    transaction.withCategory(categories[transaction.id] ?? transaction.category)
+                }
+                aiWasUsed = !categories.isEmpty
+            } catch {
+                // Local categorization is deliberately kept as a safe fallback.
+                print("AI categorization failed: \(error.localizedDescription)")
+            }
+
+            await MainActor.run { [weak self] in
+                self?.finishImport(
+                    transactions: categorizedTransactions,
+                    fingerprint: fingerprint,
+                    aiWasUsed: aiWasUsed
+                )
+            }
+        }
+    }
+
+    private func finishImport(transactions: [Transaction], fingerprint: String, aiWasUsed: Bool) {
         AppStorage.shared.markAsImported(fingerprint)
-
-        // Добавляем транзакции к накопленным
-        allTransactions = AppStorage.shared.mergeTransactions(result.transactions)
-
-        // Пересчитываем net и обновляем Battle
+        allTransactions = AppStorage.shared.mergeTransactions(transactions)
         AppStorage.shared.recalculateAndSaveNet()
 
         recompute()
         render()
         tableView.reloadData()
+        setImporting(false)
 
         let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
-        let sorted = result.transactions.sorted { $0.date < $1.date }
+        let sorted = transactions.sorted { $0.date < $1.date }
         let from = df.string(from: sorted.first!.date)
-        let to   = df.string(from: sorted.last!.date)
+        let to = df.string(from: sorted.last!.date)
+        let mode = aiWasUsed ? "Категории назначены AI" : "Использованы локальные категории"
+
         showAlert(
             title: "Выписка добавлена",
-            message: "Добавлено \(result.transactions.count) транзакций (\(from) – \(to))\nВсего накоплено: \(allTransactions.count) транзакций"
+            message: "Добавлено \(transactions.count) транзакций (\(from) – \(to))\n\(mode)\nВсего накоплено: \(allTransactions.count) транзакций"
         )
+    }
+
+    private func setImporting(_ importing: Bool) {
+        importButton.isEnabled = !importing
+        importButton.alpha = importing ? 0.65 : 1
+        importButton.setTitle(importing ? "Сортируем операции…" : "Загрузить PDF выписку", for: .normal)
     }
 
     // MARK: - Reset
