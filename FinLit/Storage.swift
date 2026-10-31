@@ -28,6 +28,7 @@ final class AppStorage {
     private let importedDaysKey     = "imported_statement_days_v1"
     private let netSavingsKey       = "pdf_net_savings_v1"
     private let aiChatMessagesKey   = "ai_chat_messages_v1"
+    private var cachedTransactions: [Transaction]?
 
     // MARK: - Goal
 
@@ -109,10 +110,12 @@ final class AppStorage {
     // MARK: - Accumulated Transactions
 
     func loadAllTransactions() -> [Transaction] {
+        if let cachedTransactions { return cachedTransactions }
         guard let data = UserDefaults.standard.data(forKey: allTransactionsKey),
               let items = try? JSONDecoder().decode([Transaction].self, from: data) else { return [] }
 
         // Categories are final after the AI review and must survive relaunches.
+        cachedTransactions = items
         return items
     }
 
@@ -125,6 +128,7 @@ final class AppStorage {
         let toAdd = newTxs.filter { !existingIDs.contains($0.id) }
         existing.append(contentsOf: toAdd)
         existing.sort { $0.date > $1.date }
+        cachedTransactions = existing
         if let data = try? JSONEncoder().encode(existing) {
             UserDefaults.standard.set(data, forKey: allTransactionsKey)
         }
@@ -145,6 +149,7 @@ final class AppStorage {
         let original = transactions[index]
         transactions[index] = updatedTransaction
         transactions.sort { $0.date > $1.date }
+        cachedTransactions = transactions
         if let data = try? JSONEncoder().encode(transactions) {
             UserDefaults.standard.set(data, forKey: allTransactionsKey)
         }
@@ -168,7 +173,8 @@ final class AppStorage {
             if correction.category != transaction.category {
                 LearnedCategoryRules.learn(
                     merchant: transaction.merchant,
-                    category: correction.category
+                    category: correction.category,
+                    source: .aiSuggestion
                 )
             }
             return transaction.withCorrections(
@@ -177,6 +183,7 @@ final class AppStorage {
             )
         }.sorted { $0.date > $1.date }
 
+        cachedTransactions = updated
         if let data = try? JSONEncoder().encode(updated) {
             UserDefaults.standard.set(data, forKey: allTransactionsKey)
         }
@@ -187,6 +194,7 @@ final class AppStorage {
 
     /// Сброс всех данных
     func clearAllTransactions() {
+        cachedTransactions = []
         UserDefaults.standard.removeObject(forKey: allTransactionsKey)
         UserDefaults.standard.removeObject(forKey: fingerprintsKey)
         UserDefaults.standard.removeObject(forKey: importedDaysKey)

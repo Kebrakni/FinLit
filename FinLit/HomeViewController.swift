@@ -41,7 +41,7 @@ struct HomeAchievementPresentation: Hashable {
     }
 }
 
-struct HomeGamificationPresentation {
+struct HomeGamificationPresentation: Equatable {
     let level: Int
     let levelTitle: String
     let currentXP: Int
@@ -66,6 +66,9 @@ final class HomeViewController: UIViewController {
     private var goal: Goal = AppStorage.shared.loadGoal()
     private var missionGenerationTask: Task<Void, Never>?
     private var isGeneratingAIMissions = false
+    private var hasRenderedGamification = false
+    private var didMarkStartupActivity = false
+    private var refreshScheduled = false
 
     // MARK: - UI
 
@@ -77,6 +80,7 @@ final class HomeViewController: UIViewController {
     private let goalIcon      = UIImageView(image: UIImage(systemName: "target"))
     private let titleLabel    = UILabel()
     private let amountsLabel  = UILabel()
+    private let savingsBreakdownLabel = UILabel()
     private let progressView  = UIProgressView(progressViewStyle: .default)
     private let progressLabel = UILabel()
     private let deadlineLabel = UILabel()
@@ -101,7 +105,7 @@ final class HomeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Цель"
+        title = "Моя цель"
         view.backgroundColor = FinLitTheme.background
         setupNav()
         setupUI()
@@ -112,7 +116,6 @@ final class HomeViewController: UIViewController {
             name: GamificationManager.updatedNotification,
             object: nil
         )
-        GamificationManager.shared.markActivity()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -120,6 +123,14 @@ final class HomeViewController: UIViewController {
         goal = AppStorage.shared.loadGoal()
         render()
         refreshGamification()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !didMarkStartupActivity {
+            didMarkStartupActivity = true
+            GamificationManager.shared.markActivity()
+        }
         refreshAIMissionsIfNeeded()
     }
 
@@ -192,6 +203,7 @@ final class HomeViewController: UIViewController {
 
         goalIcon.translatesAutoresizingMaskIntoConstraints = false
         goalIcon.tintColor = .white
+        goalIcon.contentMode = .scaleAspectFit
         goalIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -200,9 +212,16 @@ final class HomeViewController: UIViewController {
         titleLabel.numberOfLines = 2
 
         amountsLabel.translatesAutoresizingMaskIntoConstraints = false
-        amountsLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        amountsLabel.textColor = UIColor.white.withAlphaComponent(0.78)
+        amountsLabel.font = .monospacedDigitSystemFont(ofSize: 31, weight: .bold)
+        amountsLabel.textColor = .white
         amountsLabel.numberOfLines = 2
+        amountsLabel.adjustsFontSizeToFitWidth = true
+        amountsLabel.minimumScaleFactor = 0.75
+
+        savingsBreakdownLabel.translatesAutoresizingMaskIntoConstraints = false
+        savingsBreakdownLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        savingsBreakdownLabel.textColor = UIColor.white.withAlphaComponent(0.75)
+        savingsBreakdownLabel.numberOfLines = 0
 
         progressView.translatesAutoresizingMaskIntoConstraints = false
         progressView.layer.cornerRadius = 5
@@ -237,6 +256,7 @@ final class HomeViewController: UIViewController {
         goalIconView.addSubview(goalIcon)
         cardView.addSubview(titleLabel)
         cardView.addSubview(amountsLabel)
+        cardView.addSubview(savingsBreakdownLabel)
         cardView.addSubview(progressView)
         cardView.addSubview(progressLabel)
         cardView.addSubview(deadlineLabel)
@@ -255,6 +275,8 @@ final class HomeViewController: UIViewController {
 
             goalIcon.centerXAnchor.constraint(equalTo: goalIconView.centerXAnchor),
             goalIcon.centerYAnchor.constraint(equalTo: goalIconView.centerYAnchor),
+            goalIcon.widthAnchor.constraint(equalToConstant: 22),
+            goalIcon.heightAnchor.constraint(equalToConstant: 22),
 
             titleLabel.topAnchor.constraint(equalTo: goalIconView.bottomAnchor, constant: 20),
             titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 22),
@@ -264,7 +286,11 @@ final class HomeViewController: UIViewController {
             amountsLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 22),
             amountsLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -22),
 
-            progressView.topAnchor.constraint(equalTo: amountsLabel.bottomAnchor, constant: 22),
+            savingsBreakdownLabel.topAnchor.constraint(equalTo: amountsLabel.bottomAnchor, constant: 8),
+            savingsBreakdownLabel.leadingAnchor.constraint(equalTo: amountsLabel.leadingAnchor),
+            savingsBreakdownLabel.trailingAnchor.constraint(equalTo: amountsLabel.trailingAnchor),
+
+            progressView.topAnchor.constraint(equalTo: savingsBreakdownLabel.bottomAnchor, constant: 22),
             progressView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 22),
             progressView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -22),
             progressView.heightAnchor.constraint(equalToConstant: 10),
@@ -335,11 +361,14 @@ final class HomeViewController: UIViewController {
         let combinedSavings = statementSavings + manualSavings
         var displayedGoal = goal
         displayedGoal.savedAmount = combinedSavings
-        amountsLabel.text = "\(formatMoney(combinedSavings)) из \(formatMoney(goal.targetAmount))\nВыписка: \(formatMoney(statementSavings)) · Вручную: \(formatMoney(manualSavings))"
+        amountsLabel.text = formatMoney(combinedSavings)
+        savingsBreakdownLabel.text = "из \(formatMoney(goal.targetAmount))\nВыписка · \(formatMoney(statementSavings))    Вручную · \(formatMoney(manualSavings))"
 
         let pct = Int(displayedGoal.progress * 100)
         progressView.setProgress(Float(displayedGoal.progress), animated: true)
-        progressLabel.text = "\(pct)% выполнено"
+        progressLabel.text = combinedSavings >= goal.targetAmount
+            ? "Цель достигнута!"
+            : "\(pct)% выполнено · ещё \(formatMoney(goal.targetAmount - combinedSavings))"
         journeyView.configure(savedAmount: combinedSavings, targetAmount: goal.targetAmount)
 
         if let deadline = goal.deadline {
@@ -364,8 +393,10 @@ final class HomeViewController: UIViewController {
     }
 
     func applyGamification(_ presentation: HomeGamificationPresentation) {
+        guard !hasRenderedGamification || presentation != gamificationPresentation else { return }
         gamificationPresentation = presentation
         guard isViewLoaded else { return }
+        hasRenderedGamification = true
 
         levelCard.configure(
             level: presentation.level,
@@ -407,7 +438,13 @@ final class HomeViewController: UIViewController {
     }
 
     @objc private func gamificationDidUpdate() {
-        refreshGamification()
+        guard !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshScheduled = false
+            self.refreshGamification()
+        }
     }
 
     private func refreshGamification() {
@@ -467,6 +504,8 @@ final class HomeViewController: UIViewController {
         let currentGoal = AppStorage.shared.loadGoalIncludingStatementSavings()
         missionGenerationTask = Task { [weak self] in
             do {
+                // Let the first interactive frame settle before starting optional AI work.
+                try await Task.sleep(for: .milliseconds(800))
                 let suggestions = try await OpenRouterCategorizer.shared.generateWeeklyMissions(
                     transactions: transactions,
                     goal: currentGoal
@@ -577,7 +616,9 @@ final class HomeViewController: UIViewController {
         let details = HomeAchievementDetailViewController(achievement: achievement)
         details.modalPresentationStyle = .pageSheet
         if let sheet = details.sheetPresentationController {
-            sheet.detents = [.medium()]
+            sheet.detents = [
+                .custom(identifier: .init("achievement")) { min(620, $0.maximumDetentValue) }, .large()
+            ]
             sheet.prefersGrabberVisible = true
             sheet.preferredCornerRadius = 28
         }
@@ -587,71 +628,30 @@ final class HomeViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func didTapAdd() {
-        let alert = UIAlertController(title: "Сколько отложил(а)?",
-                                      message: "Введи сумму в тенге",
-                                      preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.placeholder = "например 5000"
-            tf.keyboardType = .decimalPad
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Добавить", style: .default) { [weak self] _ in
+        let sheet = SavingsContributionSheet(
+            goal: goal,
+            saved: AppStorage.shared.loadCombinedSavings()
+        ) { [weak self] value in
             guard let self else { return }
-            let text = alert.textFields?.first?.text ?? ""
-            let value = Double(text
-                .replacingOccurrences(of: " ", with: "")
-                .replacingOccurrences(of: ",", with: ".")) ?? 0
-            guard value > 0 else { return }
+            self.goal = AppStorage.shared.loadGoal()
             self.goal.savedAmount += value
             AppStorage.shared.saveGoal(self.goal)
             GamificationManager.shared.recordGoalContribution(amount: value)
             self.render()
             self.refreshGamification()
-        })
-        present(alert, animated: true)
+        }
+        present(sheet, animated: true)
     }
 
     @objc private func didTapEdit() {
-        let alert = UIAlertController(title: "Редактировать цель", message: nil, preferredStyle: .alert)
-        alert.addTextField { [weak self] tf in
-            tf.placeholder = "Название цели"
-            tf.text = self?.goal.title
-        }
-        alert.addTextField { [weak self] tf in
-            tf.placeholder = "Целевая сумма ₸"
-            tf.keyboardType = .decimalPad
-            if let g = self?.goal { tf.text = "\(Int(g.targetAmount))" }
-        }
-        alert.addTextField { [weak self] tf in
-            tf.placeholder = "Дедлайн дд.мм.гггг (необязательно)"
-            if let d = self?.goal.deadline {
-                let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
-                tf.text = df.string(from: d)
-            }
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Сохранить", style: .default) { [weak self] _ in
-            guard let self, let fields = alert.textFields else { return }
-            let newTitle = fields[0].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !newTitle.isEmpty { self.goal.title = newTitle }
-            if let raw = fields[1].text,
-               let amount = Double(raw.replacingOccurrences(of: " ", with: "")
-                                      .replacingOccurrences(of: ",", with: ".")),
-               amount > 0 {
-                self.goal.targetAmount = amount
-            }
-            let rawDate = fields[2].text ?? ""
-            if rawDate.isEmpty {
-                self.goal.deadline = nil
-            } else {
-                let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
-                self.goal.deadline = df.date(from: rawDate)
-            }
+        let sheet = GoalEditorSheet(goal: goal) { [weak self] updated in
+            guard let self else { return }
+            self.goal = updated
             AppStorage.shared.saveGoal(self.goal)
             self.render()
             self.refreshGamification()
-        })
-        present(alert, animated: true)
+        }
+        present(sheet, animated: true)
     }
 
     // MARK: - Helpers
@@ -1210,6 +1210,7 @@ final class HomeAchievementDetailViewController: UIViewController {
         iconBackground.layer.cornerRadius = 36
         iconBackground.layer.cornerCurve = .continuous
         iconView.tintColor = achievement.isUnlocked ? achievement.color : .tertiaryLabel
+        iconView.contentMode = .scaleAspectFit
         iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 30, weight: .bold)
 
         titleLabel.text = achievement.title
@@ -1229,7 +1230,7 @@ final class HomeAchievementDetailViewController: UIViewController {
         stateLabel.clipsToBounds = true
 
         FinLitTheme.styleCard(descriptionCard, radius: 20)
-        descriptionTitle.text = "Как получить"
+        descriptionTitle.text = achievement.isUnlocked ? "Выполненное условие" : "Как получить"
         descriptionTitle.font = .systemFont(ofSize: 13, weight: .bold)
         descriptionTitle.textColor = .secondaryLabel
         descriptionLabel.text = achievement.detail
@@ -1251,6 +1252,7 @@ final class HomeAchievementDetailViewController: UIViewController {
         dateLabel.font = .systemFont(ofSize: 14, weight: .medium)
         dateLabel.textColor = .secondaryLabel
         dateLabel.textAlignment = .center
+        dateLabel.numberOfLines = 0
 
         view.addSubview(closeButton)
         view.addSubview(iconBackground)

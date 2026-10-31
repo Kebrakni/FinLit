@@ -280,7 +280,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     private var localParticipants: [BattleParticipant] = []
 
     private var firestoreListener: ListenerRegistration?
-    private let db = Firestore.firestore()
+    private lazy var db = Firestore.firestore()
 
     // MARK: UI
 
@@ -292,14 +292,13 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     private let myNetLabel      = UILabel()
     private let myNetTitle      = UILabel()
     private let myNetHint       = UILabel()
-    private let roomCodeLabel   = UILabel()   // показывает текущий код комнаты
     private let actionButton    = UIButton(type: .system)
 
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Битва накоплений"
+        title = "Битва"
         view.backgroundColor = FinLitTheme.background
         setupNav()
         setupUI()
@@ -336,35 +335,54 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     private func setupNav() {
         let menuBtn = UIBarButtonItem(
             image: UIImage(systemName: "ellipsis.circle"),
-            style: .plain, target: self, action: #selector(showMenu)
+            menu: battleMenu()
         )
         navigationItem.rightBarButtonItem = menuBtn
     }
 
     @objc private func showMenu() {
-        let sheet = UIAlertController(title: "Баттл", message: nil, preferredStyle: .actionSheet)
-
-        sheet.addAction(UIAlertAction(title: "Создать комнату", style: .default) { [weak self] _ in
-            self?.didTapCreateRoom()
-        })
-        sheet.addAction(UIAlertAction(title: "Войти по коду", style: .default) { [weak self] _ in
-            self?.didTapJoinRoom()
-        })
-        if currentRoomId != nil {
-            sheet.addAction(UIAlertAction(title: "Скопировать код комнаты", style: .default) { [weak self] _ in
-                UIPasteboard.general.string = self?.currentRoomId
-                self?.showBanner("Код скопирован!")
-            })
-            sheet.addAction(UIAlertAction(title: "Покинуть комнату", style: .destructive) { [weak self] _ in
-                self?.leaveRoom()
-            })
+        let sheet = FinLitFormSheet(
+            title: "Копить вместе интереснее",
+            detail: "Создайте комнату и пригласите друзей или присоединитесь по коду. В рейтинге учитывается процент личной цели.",
+            symbol: "person.2.fill", action: "Закрыть"
+        )
+        sheet.sheetPresentationController?.detents = [
+            .custom(identifier: .init("battleActions")) { min(630, $0.maximumDetentValue) }, .large()
+        ]
+        sheet.loadViewIfNeeded()
+        sheet.submitButton.addAction(UIAction { [weak sheet] _ in sheet?.finish() }, for: .touchUpInside)
+        for (title, symbol, action) in [
+            ("Создать комнату", "plus.circle.fill", { [weak self] in self?.didTapCreateRoom() }),
+            ("У меня есть код", "rectangle.and.pencil.and.ellipsis", { [weak self] in self?.didTapJoinRoom() })
+        ] {
+            let button = UIButton(type: .system)
+            var config = UIButton.Configuration.tinted()
+            config.title = title
+            config.image = UIImage(systemName: symbol)
+            config.imagePadding = 12
+            config.baseForegroundColor = FinLitTheme.accent
+            config.cornerStyle = .large
+            config.contentInsets = .init(top: 22, leading: 18, bottom: 22, trailing: 18)
+            button.configuration = config
+            button.contentHorizontalAlignment = .leading
+            button.addAction(UIAction { [weak sheet] _ in sheet?.finish { action() } }, for: .touchUpInside)
+            sheet.contentStack.addArrangedSubview(button)
         }
-        sheet.addAction(UIAlertAction(title: "Моё имя", style: .default) { [weak self] _ in
-            self?.didTapChangeName()
-        })
-        sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-
         present(sheet, animated: true)
+    }
+
+    private func battleMenu() -> UIMenu {
+        UIMenu(children: [
+            UIAction(title: "Создать комнату", image: UIImage(systemName: "plus.circle")) { [weak self] _ in self?.didTapCreateRoom() },
+            UIAction(title: "Войти по коду", image: UIImage(systemName: "person.badge.plus")) { [weak self] _ in self?.didTapJoinRoom() },
+            UIAction(title: "Моё имя", image: UIImage(systemName: "person.crop.circle")) { [weak self] _ in self?.didTapChangeName() },
+            UIAction(title: "Скопировать код", image: UIImage(systemName: "doc.on.doc"), attributes: currentRoomId == nil ? .hidden : []) { [weak self] _ in
+                guard let self, let code = self.currentRoomId else { return }
+                UIPasteboard.general.string = code
+                self.showBanner("Код скопирован")
+            },
+            UIAction(title: "Покинуть комнату", image: UIImage(systemName: "rectangle.portrait.and.arrow.right"), attributes: currentRoomId == nil ? [.hidden, .destructive] : .destructive) { [weak self] _ in self?.leaveRoom() }
+        ])
     }
 
     // MARK: - UI Setup
@@ -387,21 +405,16 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
         // Карточка "Мой счёт"
         myStatsCard.translatesAutoresizingMaskIntoConstraints = false
-        myStatsCard.layer.cornerRadius = 22; myStatsCard.layer.borderWidth = 1
-        myStatsCard.layer.cornerCurve = .continuous
-        myStatsCard.backgroundColor = FinLitTheme.surface
-        myStatsCard.layer.borderColor = UIColor.systemGreen.withAlphaComponent(0.3).cgColor
-        myStatsCard.layer.shadowColor = UIColor.black.cgColor
-        myStatsCard.layer.shadowOpacity = 0.06
-        myStatsCard.layer.shadowRadius = 12
-        myStatsCard.layer.shadowOffset = CGSize(width: 0, height: 6)
+        FinLitTheme.styleCard(myStatsCard, radius: 24)
 
         myNetTitle.translatesAutoresizingMaskIntoConstraints = false
         myNetTitle.text = "Твой прогресс в битве"
         myNetTitle.font = .systemFont(ofSize: 13); myNetTitle.textColor = .secondaryLabel
 
         myNetLabel.translatesAutoresizingMaskIntoConstraints = false
-        myNetLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        myNetLabel.font = .monospacedDigitSystemFont(ofSize: 34, weight: .bold)
+        myNetLabel.adjustsFontSizeToFitWidth = true
+        myNetLabel.minimumScaleFactor = 0.7
         myNetLabel.text = "Загрузи PDF →"; myNetLabel.textColor = .secondaryLabel
 
         myNetHint.translatesAutoresizingMaskIntoConstraints = false
@@ -409,16 +422,9 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         myNetHint.font = .systemFont(ofSize: 11); myNetHint.textColor = .secondaryLabel
         myNetHint.numberOfLines = 2
 
-        roomCodeLabel.translatesAutoresizingMaskIntoConstraints = false
-        roomCodeLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
-        roomCodeLabel.textColor = FinLitTheme.accent; roomCodeLabel.textAlignment = .center
-        roomCodeLabel.numberOfLines = 1
-        updateRoomCodeLabel()
-
         myStatsCard.addSubview(myNetTitle)
         myStatsCard.addSubview(myNetLabel)
         myStatsCard.addSubview(myNetHint)
-        myStatsCard.addSubview(roomCodeLabel)
 
         // Кнопка действия (создать/войти)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
@@ -458,10 +464,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             myNetHint.leadingAnchor.constraint(equalTo: myStatsCard.leadingAnchor, constant: 14),
             myNetHint.trailingAnchor.constraint(equalTo: myStatsCard.trailingAnchor, constant: -14),
 
-            roomCodeLabel.topAnchor.constraint(equalTo: myNetHint.bottomAnchor, constant: 8),
-            roomCodeLabel.leadingAnchor.constraint(equalTo: myStatsCard.leadingAnchor, constant: 14),
-            roomCodeLabel.trailingAnchor.constraint(equalTo: myStatsCard.trailingAnchor, constant: -14),
-            roomCodeLabel.bottomAnchor.constraint(equalTo: myStatsCard.bottomAnchor, constant: -12),
+            myNetHint.bottomAnchor.constraint(equalTo: myStatsCard.bottomAnchor, constant: -18),
 
             actionButton.topAnchor.constraint(equalTo: myStatsCard.bottomAnchor, constant: 12),
             actionButton.leadingAnchor.constraint(equalTo: headerContainer.leadingAnchor, constant: 16),
@@ -498,26 +501,21 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - Firebase: Create Room
 
     @objc private func didTapCreateRoom() {
-        let alert = UIAlertController(
-            title: "Создать комнату",
-            message: "У каждого участника будет своя цель. Побеждает тот, кто выполнит больший процент.",
-            preferredStyle: .alert
+        let sheet = FinLitInputSheet(
+            title: "Своя команда",
+            detail: "У каждого своя цель. В рейтинге вы сравниваете прогресс к ней — в процентах.",
+            symbol: "trophy.fill", action: "Создать комнату", fieldTitle: "Ваша цель в битве · ₸",
+            placeholder: "350 000", value: String(format: "%.0f", AppStorage.shared.loadGoal().targetAmount), amount: true
         )
-        alert.addTextField { tf in
-            let target = AppStorage.shared.loadGoal().targetAmount
-            tf.placeholder = "Твоя цель ₸"
-            tf.text = String(Int(target))
-            tf.keyboardType = .numberPad
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Создать", style: .default) { [weak self] _ in
+        sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
-            let goalStr = (alert.textFields?.first?.text ?? "").replacingOccurrences(of: " ", with: "")
-            let goal = Double(goalStr) ?? AppStorage.shared.loadGoal().targetAmount
-            guard goal > 0 else {
-                self.showAlert("Проверь цель", "Сумма цели должна быть больше нуля.")
+            guard let goal = FinLitDisplay.amount(sheet.field.input.text) else {
+                sheet.showError("Укажите сумму цели больше нуля.")
                 return
             }
+            sheet.showError(nil)
+            sheet.setLoading(true)
+            sheet.view.endEditing(true)
 
             let roomId = self.makeRoomCode()
             let saved = AppStorage.shared.loadCombinedSavings()
@@ -539,54 +537,79 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
             self.db.collection("battleRooms").document(roomId).setData(data) { error in
                 if let error {
-                    self.showAlert("Ошибка", error.localizedDescription); return
+                    sheet.setLoading(false)
+                    sheet.showError(error.localizedDescription); return
                 }
                 self.currentRoomId = roomId
                 self.subscribeToRoom(roomId)
-                self.updateRoomCodeLabel()
                 self.updateActionButton()
                 // Запланировать еженедельные напоминания
                 BattleNotificationManager.shared.requestPermissionAndSchedule()
 
                 // Покажем код чтобы поделиться
-                let share = UIAlertController(
-                    title: "Комната создана!",
-                    message: "Код для друга:\n\n\(roomId)\n\nОтправь этот код другу — он введёт его через «Войти по коду»",
-                    preferredStyle: .alert
-                )
-                share.addAction(UIAlertAction(title: "Скопировать", style: .default) { _ in
-                    UIPasteboard.general.string = roomId
-                })
-                share.addAction(UIAlertAction(title: "OK", style: .cancel))
-                self.present(share, animated: true)
+                sheet.finish { self.presentRoomInvite(roomId) }
             }
-        })
-        present(alert, animated: true)
+        }
+        present(sheet, animated: true)
+    }
+
+    private func presentRoomInvite(_ code: String) {
+        let sheet = FinLitFormSheet(
+            title: "Команда готова", detail: "Отправьте код друзьям. Они смогут присоединиться к вашей битве через «Войти по коду».",
+            symbol: "checkmark.seal.fill", action: "Скопировать код", actionSymbol: "doc.on.doc"
+        )
+        sheet.sheetPresentationController?.detents = [
+            .custom(identifier: .init("roomInvite")) { min(580, $0.maximumDetentValue) }, .large()
+        ]
+        sheet.loadViewIfNeeded()
+        let label = UILabel()
+        label.text = code
+        label.font = .monospacedSystemFont(ofSize: 38, weight: .bold)
+        label.textAlignment = .center
+        label.textColor = FinLitTheme.accent
+        label.backgroundColor = FinLitTheme.accentSoft
+        label.layer.cornerRadius = 22
+        label.clipsToBounds = true
+        label.heightAnchor.constraint(equalToConstant: 100).isActive = true
+        sheet.contentStack.addArrangedSubview(label)
+        sheet.submitButton.addAction(UIAction { [weak sheet] _ in
+            UIPasteboard.general.string = code
+            sheet?.finish()
+        }, for: .touchUpInside)
+        present(sheet, animated: true)
     }
 
     // MARK: - Firebase: Join Room
 
     @objc private func didTapJoinRoom() {
-        let alert = UIAlertController(title: "Войти по коду", message: "Введи код комнаты от друга", preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.placeholder = "Код (6 символов)"
-            tf.autocapitalizationType = .allCharacters
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Войти", style: .default) { [weak self] _ in
+        let sheet = FinLitInputSheet(
+            title: "Вместе к цели", detail: "Введите шестизначный код, которым поделился друг.",
+            symbol: "person.badge.plus", action: "Присоединиться", fieldTitle: "Код комнаты", placeholder: "ABC234"
+        )
+        sheet.field.input.autocapitalizationType = .allCharacters
+        sheet.field.input.autocorrectionType = .no
+        sheet.field.input.font = .monospacedSystemFont(ofSize: 30, weight: .bold)
+        sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
-            let code = (alert.textFields?.first?.text ?? "")
+            let code = (sheet.field.input.text ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased()
-            guard !code.isEmpty else { return }
+            guard code.count == 6, code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+                sheet.showError("Код состоит из 6 латинских букв и цифр."); return
+            }
+            sheet.showError(nil)
+            sheet.setLoading(true)
+            sheet.view.endEditing(true)
 
             let ref = self.db.collection("battleRooms").document(code)
             ref.getDocument { snapshot, error in
                 if let error {
-                    self.showAlert("Ошибка", error.localizedDescription); return
+                    sheet.setLoading(false)
+                    sheet.showError(error.localizedDescription); return
                 }
                 guard let data = snapshot?.data() else {
-                    self.showAlert("Не найдено", "Комната с кодом «\(code)» не существует"); return
+                    sheet.setLoading(false)
+                    sheet.showError("Комната с кодом «\(code)» не найдена. Проверьте код."); return
                 }
 
                 // Проверяем не в ней ли уже
@@ -616,19 +639,19 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
                 ref.updateData(["members": members]) { error in
                     if let error {
-                        self.showAlert("Ошибка", error.localizedDescription); return
+                        sheet.setLoading(false)
+                        sheet.showError(error.localizedDescription); return
                     }
                     self.currentRoomId = code
                     self.subscribeToRoom(code)
-                    self.updateRoomCodeLabel()
                     self.updateActionButton()
                     // Запланировать еженедельные напоминания
                     BattleNotificationManager.shared.requestPermissionAndSchedule()
-                    self.showBanner("Ты в комнате \(code)!")
+                    sheet.finish { self.showBanner("Ты в комнате \(code)!") }
                 }
             }
-        })
-        present(alert, animated: true)
+        }
+        present(sheet, animated: true)
     }
 
     // MARK: - Firebase: Real-time listener
@@ -728,7 +751,6 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                 BattleNotificationManager.shared.cancelAllReminders()
                 DispatchQueue.main.async {
                     self.tableView.reloadData()
-                    self.updateRoomCodeLabel()
                     self.updateActionButton()
                     self.loadLocalFallback()
                     self.showBanner("Ты покинул комнату")
@@ -788,11 +810,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         myNetLabel.textColor = isNeg ? .systemOrange : FinLitTheme.accent
         myNetHint.text = "\(savedStr) из \(targetStr) ₸ • выписка + добавлено вручную"
 
-        myStatsCard.backgroundColor  = isNeg
-            ? UIColor.systemRed.withAlphaComponent(0.1)
-            : UIColor.systemGreen.withAlphaComponent(0.1)
-        myStatsCard.layer.borderColor = (isNeg ? UIColor.systemRed : UIColor.systemGreen)
-            .withAlphaComponent(0.4).cgColor
+        myStatsCard.backgroundColor = FinLitTheme.surface
     }
 
     private func updateMyCardFromRoom(_ room: FirebaseBattleRoom) {
@@ -806,19 +824,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         updateMyCard(net: saved, target: target)
     }
 
-    private func updateRoomCodeLabel() {
-        if let code = currentRoomId {
-            roomCodeLabel.text = "Код комнаты: \(code)  (нажми ··· чтобы скопировать)"
-            roomCodeLabel.textColor = FinLitTheme.accent
-            roomCodeLabel.isHidden = false
-        } else {
-            roomCodeLabel.text = "Нет активной комнаты"
-            roomCodeLabel.textColor = .secondaryLabel
-            roomCodeLabel.isHidden = false
-        }
-    }
-
     private func updateActionButton() {
+        navigationItem.rightBarButtonItem?.menu = battleMenu()
         let title: String
         if currentRoomId == nil {
             title = "Создать или войти в комнату"
@@ -831,29 +838,29 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     @objc private func didTapActionButton() {
         if currentRoomId == nil {
             showMenu()
-        } else {
-            UIPasteboard.general.string = currentRoomId
-            showBanner("Код \(currentRoomId ?? "") скопирован!")
+        } else if let code = currentRoomId {
+            presentRoomInvite(code)
         }
     }
 
     @objc private func didTapChangeName() {
-        let alert = UIAlertController(title: "Твоё имя в битве", message: nil, preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.text = self.myName
-            tf.placeholder = "Имя"
-            tf.autocapitalizationType = .words
-        }
-        alert.addAction(UIAlertAction(title: "Сохранить", style: .default) { [weak self] _ in
+        let sheet = FinLitInputSheet(
+            title: "Как вас узнают", detail: "Это имя увидят друзья в рейтинге комнаты.",
+            symbol: "person.crop.circle.fill", action: "Сохранить имя", fieldTitle: "Имя в битве",
+            placeholder: "Ваше имя", value: myName
+        )
+        sheet.field.input.autocapitalizationType = .words
+        sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
-            let name = (alert.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
+            let name = (sheet.field.input.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name.count <= 40 else {
+                sheet.showError("Введите имя от 1 до 40 символов."); return
+            }
             UserDefaults.standard.set(name, forKey: "battle_my_name")
             self.pushMyAmountIfNeeded()
-            self.showBanner("Имя обновлено: \(name)")
-        })
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        present(alert, animated: true)
+            sheet.finish { self.showBanner("Имя обновлено: \(name)") }
+        }
+        present(sheet, animated: true)
     }
 
     // MARK: - Make room code
@@ -926,8 +933,6 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func showAlert(_ t: String, _ m: String) {
-        let a = UIAlertController(title: t, message: m, preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "OK", style: .default))
-        present(a, animated: true)
+        present(FinLitNoticeSheet(title: t, detail: m), animated: true)
     }
 }

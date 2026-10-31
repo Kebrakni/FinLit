@@ -1,6 +1,5 @@
 import UIKit
 import FirebaseCore
-import FirebaseFirestore
 
 
 @main
@@ -12,8 +11,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Firebase (including Firestore)
         FirebaseApp.configure()
 
-        // Optional: touch Firestore once so misconfiguration shows up early in logs
-        _ = Firestore.firestore()
         return true
     }
 

@@ -34,14 +34,22 @@ final class OpenRouterCategorizer {
         let merchant: String
         let details: String
         let currentCategory: String
+        let categoryEvidence: String?
+        let manualCategory: String?
 
-        init(_ transaction: Transaction) {
+        init(_ transaction: Transaction, formatter: ISO8601DateFormatter) {
             self.id = transaction.id
-            self.date = ISO8601DateFormatter().string(from: transaction.date)
+            self.date = formatter.string(from: transaction.date)
             self.amount = transaction.amount
             self.merchant = transaction.merchant
             self.details = transaction.details
+            let manual = LearnedCategoryRules.manualCategory(for: transaction.merchant)
+            let evidence = Categorizer.evidence(merchant: transaction.merchant, details: transaction.details)
+            // Keep the actual stored category: chat review must be able to see
+            // that an old shopping assignment still needs correction.
             self.currentCategory = transaction.category.aiCode
+            self.categoryEvidence = evidence?.reason
+            self.manualCategory = manual?.aiCode
         }
     }
 
@@ -64,6 +72,13 @@ final class OpenRouterCategorizer {
     struct ReviewResult {
         let reply: String
         let changes: [ReviewChange]
+        let insight: AIChatInsight?
+
+        init(reply: String, changes: [ReviewChange], insight: AIChatInsight? = nil) {
+            self.reply = reply
+            self.changes = changes
+            self.insight = insight
+        }
     }
 
     struct MissionSuggestion: Decodable {
@@ -111,12 +126,14 @@ final class OpenRouterCategorizer {
         var lastError: Error?
         var start = 0
         while start < transactions.count {
+            try Task.checkCancellation()
             let end = min(start + chunkSize, transactions.count)
             let batch = Array(transactions[start..<end])
             do {
                 let categories = try await categorizeBatch(batch)
                 result.merge(categories) { _, new in new }
             } catch {
+                if Task.isCancelled { throw CancellationError() }
                 // A long annual statement should keep successful batches even if
                 // one free-model request is temporarily rate-limited.
                 lastError = error
@@ -139,6 +156,7 @@ final class OpenRouterCategorizer {
                 changes: []
             )
         }
+        if let result = Self.quickAnswer(message: message, transactions: transactions) { return result }
         let candidates = Self.reviewCandidates(
             for: message,
             history: history,
@@ -159,14 +177,14 @@ final class OpenRouterCategorizer {
         request.httpBody = try JSONEncoder().encode(
             ReviewRequest(
                 message: message,
-                history: history.suffix(16).map { item in
+                history: history.suffix(8).map { item in
                     "\(item.role == .user ? "Пользователь" : "AI"): \(item.text)"
                 },
                 analyticsContext: Self.analyticsContext(
                     for: message,
                     in: transactions
                 ),
-                transactions: candidates.map(InputTransaction.init)
+                transactions: Self.inputTransactions(candidates)
             )
         )
 
@@ -215,7 +233,7 @@ final class OpenRouterCategorizer {
                     targetAmount: goal.targetAmount,
                     savedAmount: goal.savedAmount
                 ),
-                transactions: candidates.map(InputTransaction.init)
+                transactions: Self.inputTransactions(Array(candidates))
             )
         )
 
@@ -259,7 +277,49 @@ final class OpenRouterCategorizer {
         return selected
     }
 
-    private static let capabilitiesReply = "Я умею искать операции по имени, магазину, категории, сумме и периоду; точно считать, сколько вы перевели человеку или потратили за месяц; сравнивать расходы; находить регулярные платежи; объяснять категории и предлагать исправления суммы или категории. Например: «Сколько я перевёл Даниялу?», «Покажи траты на еду за сентябрь» или «Найди мои подписки»."
+    private static let capabilitiesReply = "Кнопки под чатом помогут без ожидания посмотреть переводы человеку, расходы по категории и обзор за месяц. Нажмите «Проверить», чтобы найти ошибки в категориях с AI или исправить операцию вручную. Любое предложенное исправление можно проверить перед применением. Можно и просто написать: «Сколько я перевёл Даниялу за сентябрь?»"
+
+    private static func quickAnswer(message: String, transactions: [Transaction]) -> ReviewResult? {
+        let lower = message.lowercased().replacingOccurrences(of: "ё", with: "е")
+        guard !["исправ", "помен", "проверь", "правильн", "неверн", "сравн", "почему", "тестер"].contains(where: lower.contains),
+              ["сколько", "потрат", "расход", "перевел", "скинул", "перевод", "обзор", "баланс"].contains(where: lower.contains) else { return nil }
+        // Leave non-calendar or incomplete date expressions to clarification in the free-form chat.
+        if ["недел", "сегодня", "вчера", "дней", "дня", "дней", "числа"].contains(where: lower.contains)
+            || lower.range(of: #"\d{1,2}[./]\d{1,2}"#, options: .regularExpression) != nil { return nil }
+        let periodRows = transactionsInRequestedPeriod(message, transactions: transactions)
+        let direction: AssistantAnalytics.Direction = ["мне", "получ", "кто", " от "].contains(where: lower.contains) ? .incoming : .outgoing
+        let queryStems = meaningfulStems(in: message)
+        let transferIntent = ["перев", "скин", "отправ"].contains(where: lower.contains)
+        let people = AssistantAnalytics.people(in: transactions, direction: direction)
+        let matches = people.filter { !allStems(in: $0.name).intersection(queryStems).isEmpty }
+        let query: AssistantAnalytics.Query
+        if transferIntent, matches.count == 1, let person = matches.first {
+            query = .person(key: person.key, name: person.name, direction: direction)
+        } else if transferIntent, matches.count > 1 {
+            return ReviewResult(reply: "В выписках несколько подходящих людей: \(matches.prefix(6).map(\.name).joined(separator: ", ")). Нажмите «Переводы» под чатом и выберите нужного человека.", changes: [])
+        } else if let category = requestedCategory(in: message), category != .transfers {
+            query = .category(category)
+        } else if transferIntent && (lower.contains("всего") || lower.contains("кому") || lower.contains("кто")) {
+            query = .transfers(direction)
+        } else if ["обзор", "баланс", "на что", "больше всего"].contains(where: lower.contains) {
+            query = .overview
+        } else if !transferIntent && ["потрат", "расход"].contains(where: lower.contains) {
+            query = .expenses
+        } else if !transferIntent && ["получ", "доход", "поступ"].contains(where: lower.contains) {
+            query = .income
+        } else {
+            // Unknown names need clarification from the AI instead of returning a total for everybody.
+            return nil
+        }
+        let result = AssistantAnalytics.answer(query: query, period: .all, transactions: periodRows)
+        let date = DateFormatter()
+        date.locale = Locale(identifier: "ru_RU")
+        date.dateFormat = "dd.MM.yyyy"
+        let period = [periodRows.map(\.date).min(), periodRows.map(\.date).max()].compactMap { $0 }.map(date.string).joined(separator: "–")
+        let insight = AIChatInsight(title: result.insight.title, amount: result.insight.amount,
+                                    subtitle: "\(period.isEmpty ? "За выбранный период" : period) · по загруженным операциям", lines: result.insight.lines)
+        return ReviewResult(reply: "\(insight.title). \(insight.subtitle): \(AssistantAnalytics.money(insight.amount)).\n\(insight.lines.joined(separator: "\n"))", changes: [], insight: insight)
+    }
 
     private static func isCapabilitiesQuestion(_ message: String) -> Bool {
         let value = message.lowercased()
@@ -382,6 +442,8 @@ final class OpenRouterCategorizer {
         let lower = message.lowercased()
         let calendar = Calendar.current
         let now = Date()
+        let explicitYear = lower.range(of: #"\b20\d{2}\b"#, options: .regularExpression)
+            .flatMap { Int(lower[$0]) }
         if lower.contains("прошл") && lower.contains("месяц"),
            let previous = calendar.date(byAdding: .month, value: -1, to: now),
            let interval = calendar.dateInterval(of: .month, for: previous) {
@@ -399,10 +461,15 @@ final class OpenRouterCategorizer {
             ("ноябр", 11), ("декабр", 12),
         ]
         guard let month = months.first(where: { lower.contains($0.0) })?.1 else {
+            if let explicitYear {
+                return transactions.filter { calendar.component(.year, from: $0.date) == explicitYear }
+            }
+            if lower.contains("год") && (lower.contains("прошл") || lower.contains("текущ") || lower.contains("этот")) {
+                let year = calendar.component(.year, from: now) - (lower.contains("прошл") ? 1 : 0)
+                return transactions.filter { calendar.component(.year, from: $0.date) == year }
+            }
             return transactions
         }
-        let explicitYear = lower.range(of: #"\b20\d{2}\b"#, options: .regularExpression)
-            .flatMap { Int(lower[$0]) }
         let year = explicitYear ?? transactions
             .filter { calendar.component(.month, from: $0.date) == month }
             .map { calendar.component(.year, from: $0.date) }
@@ -467,7 +534,7 @@ final class OpenRouterCategorizer {
         request.timeoutInterval = 90
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
-            Request(transactions: transactions.map(InputTransaction.init))
+            Request(transactions: Self.inputTransactions(transactions))
         )
 
         let (data, response) = try await session.data(for: request)
@@ -480,10 +547,11 @@ final class OpenRouterCategorizer {
         }
 
         let result = try decoder.decode(Response.self, from: data)
-        return result.categories.reduce(into: [:]) { output, item in
-            if let category = TxCategory(aiCode: item.category) {
-                output[item.id] = category
-            }
+        let decisions = result.categories.reduce(into: [String: TxCategory]()) { output, item in
+            if let category = TxCategory(aiCode: item.category) { output[item.id] = category }
+        }
+        return transactions.reduce(into: [:]) { output, transaction in
+            output[transaction.id] = Categorizer.finalCategory(for: transaction, aiCategory: decisions[transaction.id])
         }
     }
 
@@ -497,6 +565,11 @@ final class OpenRouterCategorizer {
             throw APIError.invalidURL
         }
         return url
+    }
+
+    private static func inputTransactions(_ transactions: [Transaction]) -> [InputTransaction] {
+        let formatter = ISO8601DateFormatter()
+        return transactions.map { InputTransaction($0, formatter: formatter) }
     }
 
     enum APIError: LocalizedError {

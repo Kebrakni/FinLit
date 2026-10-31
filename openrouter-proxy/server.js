@@ -108,6 +108,8 @@ async function categorizeWithOpenRouter(transactions) {
 
   const prompt = [
     "Разнеси операции банковской выписки по категориям.",
+    "Purchases — тип оплаты, а не категория shopping. Определяй назначение по merchant/details: Dodo Pizza / Додо Пицца → cafes; явные пометки SUBCR/SUBSCR/SUBSCRIPTION/RECURRING → subscriptions.",
+    "Перевод человеку остаётся transfers, даже если имя похоже на магазин. Не копируй currentCategory автоматически и не выдумывай назначение незнакомого продавца: при нехватке данных выбирай other.",
     "Используй merchant, details, сумму, знак суммы и тип операции.",
     "Положительный amount — поступление, отрицательный — расход.",
     "Верни ровно одну категорию для каждой переданной операции, используя только id из входных данных.",

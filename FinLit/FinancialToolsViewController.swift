@@ -231,6 +231,11 @@ private final class TransactionSearchViewController: UIViewController,
         }
         let expenses = filtered.filter { $0.amount < 0 }.reduce(0.0) { $0 + abs($1.amount) }
         resultLabel.text = "\(filtered.count) операций · расходы \(FinancialToolsFormat.money(expenses))"
+        tableView.backgroundView = filtered.isEmpty ? FinLitEmptyStateView(
+            symbol: "magnifyingglass",
+            title: "Ничего не нашлось",
+            detail: "Попробуйте другое название или измените фильтры категории и периода."
+        ) : nil
         tableView.reloadData()
     }
 
@@ -892,6 +897,14 @@ private final class RecurringPaymentsViewController: UIViewController,
         tableView.backgroundColor = .clear
         tableView.register(RecurringPaymentCell.self, forCellReuseIdentifier: "RecurringPayment")
         tableView.contentInset.bottom = 24
+        if patterns.isEmpty {
+            headerLabel.text = "Подписки и другие повторяющиеся списания"
+            tableView.backgroundView = FinLitEmptyStateView(
+                symbol: "arrow.clockwise.circle",
+                title: "Пока без повторений",
+                detail: "Когда в выписках появятся похожие платежи с регулярным интервалом, мы соберём их здесь."
+            )
+        }
 
         view.addSubview(headerLabel)
         view.addSubview(tableView)

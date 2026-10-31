@@ -1,5 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
+const { categorizationGuidance, categoryEvidence, finalCategory } = require("./category-policy");
 
 const openRouterApiKey = defineSecret("OPENROUTER_API_KEY");
 const model = "nvidia/nemotron-3-ultra-550b-a55b:free";
@@ -234,6 +235,7 @@ async function reviewTransactions(userMessage, transactions, history, analyticsC
     "Ответ должен быть законченным. Никогда не заканчивай reply двоеточием и не объявляй список, не написав сами пункты списка.",
     "Найди подходящую операцию только среди переданного JSON по названию, дате, сумме и контексту.",
     "currentCategory — текущая категория в приложении.",
+    ...categorizationGuidance,
     testerMode
       ? "Включён режим ТЕСТЕР. Пользователь тестирует приложение: выполни его явную команду по существующей операции и верни требуемое изменение, не спорь с выбором категории или суммы."
       : "Если категория или сумма действительно неверна, добавь изменение. Если данных недостаточно — задай уточняющий вопрос и верни changes: [].",
@@ -516,7 +518,7 @@ async function categorizeTransactions(transactions) {
   // category produced by the local first pass instead of losing the row.
   return transactions.map((transaction) => ({
     id: transaction.id,
-    category: decisions.get(transaction.id) || transaction.currentCategory || "other",
+    category: finalCategory(transaction, decisions.get(transaction.id)),
   }));
 }
 
@@ -530,11 +532,10 @@ async function categorizeWithOpenRouter(transactions) {
 async function requestOpenRouterCategories(transactions) {
   const prompt = [
     "Проверь предварительное распределение операций банковской выписки и назначь окончательную категорию каждой операции.",
-    "currentCategory — категория первого локального прохода. Оставь её, если она верна, или замени на более подходящую.",
+    ...categorizationGuidance,
     "Используй merchant, details, сумму, знак суммы, тип операции и currentCategory.",
     "Положительный amount — поступление, отрицательный — расход.",
     "Тип операции в начале details имеет приоритет над названием получателя или магазина.",
-    "Банковские типы Transfers и Replenishment обычно являются transfers, Withdrawals — cash_withdrawals, но именно ты принимаешь окончательное решение по всему контексту.",
     "Не относись к shopping только из-за имени: учитывай тип операции и предварительную категорию.",
     "Верни ровно одну категорию для каждой переданной операции, используя только id из входных данных.",
     "Не меняй id и не придумывай новые операции.",
@@ -616,6 +617,8 @@ function validateTransactions(value) {
       amount: Number(item.amount) || 0,
       merchant: String(item.merchant || "").slice(0, 500),
       details: String(item.details || "").slice(0, 1000),
+      manualCategory: categoryCodes.includes(item.manualCategory) ? item.manualCategory : null,
+      categoryEvidence: categoryEvidence(item)?.reason || String(item.categoryEvidence || "").slice(0, 300),
       currentCategory: categoryCodes.includes(item.currentCategory)
         ? item.currentCategory
         : "other",

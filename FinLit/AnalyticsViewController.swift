@@ -75,7 +75,7 @@ final class AnalyticsViewController: UIViewController,
         importButton.translatesAutoresizingMaskIntoConstraints = false
         FinLitTheme.configurePrimaryButton(
             importButton,
-            title: "Загрузить PDF выписку",
+            title: "Добавить выписку",
             image: "doc.badge.arrow.up"
         )
         importButton.addTarget(self, action: #selector(importPDF), for: .touchUpInside)
@@ -83,19 +83,20 @@ final class AnalyticsViewController: UIViewController,
         // Reset button
         resetButton.translatesAutoresizingMaskIntoConstraints = false
         var resetConfiguration = UIButton.Configuration.gray()
-        resetConfiguration.title = "Сбросить"
         resetConfiguration.image = UIImage(systemName: "trash")
-        resetConfiguration.imagePadding = 6
         resetConfiguration.baseForegroundColor = .systemRed
         resetConfiguration.cornerStyle = .capsule
         resetConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 11)
         resetButton.configuration = resetConfiguration
+        resetButton.accessibilityLabel = "Удалить загруженные выписки"
+        resetButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         resetButton.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
         resetButton.addTarget(self, action: #selector(didTapReset), for: .touchUpInside)
 
         // Stat label
         statLabel.translatesAutoresizingMaskIntoConstraints = false
         statLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        statLabel.numberOfLines = 2
         statLabel.textColor = .secondaryLabel
         statLabel.textAlignment = .left
 
@@ -128,6 +129,9 @@ final class AnalyticsViewController: UIViewController,
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
         tableView.showsVerticalScrollIndicator = false
+        tableView.register(AnalyticsCategoryCell.self, forCellReuseIdentifier: "AnalyticsCategory")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 88
 
         view.addSubview(importButton)
         view.addSubview(resetButton)
@@ -144,9 +148,12 @@ final class AnalyticsViewController: UIViewController,
             statLabel.topAnchor.constraint(equalTo: importButton.bottomAnchor, constant: 13),
             statLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             statLabel.trailingAnchor.constraint(lessThanOrEqualTo: resetButton.leadingAnchor, constant: -10),
+            statLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
 
             resetButton.centerYAnchor.constraint(equalTo: statLabel.centerYAnchor),
             resetButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            resetButton.widthAnchor.constraint(equalToConstant: 44),
+            resetButton.heightAnchor.constraint(equalToConstant: 44),
 
             summaryCard.topAnchor.constraint(equalTo: statLabel.bottomAnchor, constant: 14),
             summaryCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -282,9 +289,8 @@ final class AnalyticsViewController: UIViewController,
                     }
                 )
                 categorizedTransactions = parsedTransactions.map { transaction in
-                    let learned = LearnedCategoryRules.category(for: transaction.merchant)
                     return transaction.withCategory(
-                        learned ?? categories[transaction.id] ?? transaction.category
+                        Categorizer.finalCategory(for: transaction, aiCategory: categories[transaction.id])
                     )
                 }
                 aiWasUsed = !categories.isEmpty
@@ -355,7 +361,7 @@ final class AnalyticsViewController: UIViewController,
     private func setImporting(_ importing: Bool) {
         importButton.isEnabled = !importing
         importButton.alpha = importing ? 0.65 : 1
-        importButton.configuration?.title = importing ? "Анализируем выписку…" : "Загрузить PDF выписку"
+        importButton.configuration?.title = importing ? "Анализируем выписку…" : "Добавить выписку"
         if importing {
             progressOverlay.present(in: view)
         } else {
@@ -419,6 +425,11 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func render() {
+        tableView.backgroundView = allTransactions.isEmpty ? FinLitEmptyStateView(
+            symbol: "chart.bar.xaxis",
+            title: "Ваша история денег",
+            detail: "Добавьте первую выписку — здесь появятся категории, структура расходов и доходы."
+        ) : nil
         guard !allTransactions.isEmpty else {
             incomeRow.setValue("—")
             expenseRow.setValue("—")
@@ -446,17 +457,19 @@ final class AnalyticsViewController: UIViewController,
         // Battle banner
         battleBanner.isHidden = false
         if netSavings >= 0 {
-            battleBanner.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.85)
-            battleLabel.text = "Битва: +\(formatMoneyAbs(netSavings)) — твой счёт обновлён"
+            battleBanner.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.12)
+            battleLabel.textColor = .systemGreen
+            battleLabel.text = "+\(formatMoneyAbs(netSavings)) из выписок учтено в цели"
         } else {
-            battleBanner.backgroundColor = UIColor.systemRed.withAlphaComponent(0.85)
-            battleLabel.text = "Битва: \(formatMoneyNet(netSavings)) — расходы превышают доходы"
+            battleBanner.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+            battleLabel.textColor = .systemOrange
+            battleLabel.text = "Расходы превышают доходы на \(formatMoneyAbs(netSavings))"
         }
     }
 
     // MARK: - TableView
 
-    func numberOfSections(in tableView: UITableView) -> Int { 2 }
+    func numberOfSections(in tableView: UITableView) -> Int { allTransactions.isEmpty ? 0 : 2 }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         section == 0 ? "Расходы по категориям" : "Доходы по категориям"
@@ -467,23 +480,9 @@ final class AnalyticsViewController: UIViewController,
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell: UITableViewCell
-        if let c = tableView.dequeueReusableCell(withIdentifier: "AnalyticsCell") {
-            cell = c
-        } else {
-            cell = UITableViewCell(style: .value1, reuseIdentifier: "AnalyticsCell")
-        }
+        let cell = tableView.dequeueReusableCell(withIdentifier: "AnalyticsCategory", for: indexPath) as! AnalyticsCategoryCell
         let item = indexPath.section == 0 ? expenseTotals[indexPath.row] : incomeTotals[indexPath.row]
-        let cat = item.0
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        cell.imageView?.image = UIImage(systemName: cat.icon, withConfiguration: iconConfig)?
-            .withTintColor(cat.uiColor, renderingMode: .alwaysOriginal)
-        cell.textLabel?.text = cat.rawValue
-        cell.detailTextLabel?.text = formatMoneyAbs(item.1)
-        cell.detailTextLabel?.textColor = indexPath.section == 0 ? .systemRed : .systemGreen
-        cell.accessoryType = .disclosureIndicator
-        cell.backgroundColor = FinLitTheme.surface
-        cell.tintColor = FinLitTheme.accent
+        cell.configure(category: item.0, value: item.1, total: indexPath.section == 0 ? totalExpense : totalIncome)
         return cell
     }
 
@@ -512,9 +511,7 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func showAlert(title: String, message: String) {
-        let a = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "OK", style: .default))
-        present(a, animated: true)
+        present(FinLitNoticeSheet(title: title, detail: message), animated: true)
     }
 }
 
@@ -811,496 +808,4 @@ final class ImportProgressView: UIView {
             self.percentLabel.text = "0%"
         }
     }
-}
-
-// MARK: - AI transaction assistant
-
-final class AIChatViewController: UIViewController, UITextFieldDelegate {
-    private var transactions: [Transaction]
-    private var chatMessages: [AIChatMessage]
-    private let onApply: ([String: (amount: Double, category: TxCategory)]) -> Void
-    private let scrollView = UIScrollView()
-    private let messageStack = UIStackView()
-    private let emptyStateView = UIStackView()
-    private let composer = UIView()
-    private let textField = UITextField()
-    private let sendButton = UIButton(type: .system)
-    private var typingRow: UIView?
-
-    init(
-        transactions: [Transaction],
-        onApply: @escaping ([String: (amount: Double, category: TxCategory)]) -> Void
-    ) {
-        self.transactions = transactions
-        self.chatMessages = AppStorage.shared.loadAIChatMessages()
-        self.onApply = onApply
-        super.init(nibName: nil, bundle: nil)
-        title = "AI-помощник"
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = FinLitTheme.background
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "xmark"),
-            style: .plain,
-            target: self,
-            action: #selector(close)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "trash"),
-            style: .plain,
-            target: self,
-            action: #selector(clearChat)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "Очистить историю чата"
-        setupComposer()
-        setupMessages()
-        setupEmptyState()
-        chatMessages.forEach { message in
-            addBubble(
-                text: message.text,
-                isUser: message.role == .user,
-                animated: false,
-                persist: false
-            )
-        }
-        updateEmptyState()
-    }
-
-    private func setupMessages() {
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.alwaysBounceVertical = true
-        scrollView.keyboardDismissMode = .interactive
-        scrollView.contentInset = UIEdgeInsets(top: 16, left: 0, bottom: 18, right: 0)
-        scrollView.showsVerticalScrollIndicator = false
-
-        messageStack.translatesAutoresizingMaskIntoConstraints = false
-        messageStack.axis = .vertical
-        messageStack.spacing = 10
-        messageStack.alignment = .fill
-
-        scrollView.addSubview(messageStack)
-        view.insertSubview(scrollView, belowSubview: composer)
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -8),
-
-            messageStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            messageStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            messageStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 14),
-            messageStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -14),
-        ])
-    }
-
-    private func setupEmptyState() {
-        let icon = UIImageView(image: UIImage(systemName: "bubble.left.and.bubble.right"))
-        let titleLabel = UILabel()
-        let subtitleLabel = UILabel()
-        emptyStateView.translatesAutoresizingMaskIntoConstraints = false
-        emptyStateView.axis = .vertical
-        emptyStateView.alignment = .center
-        emptyStateView.spacing = 8
-        emptyStateView.isUserInteractionEnabled = false
-
-        icon.tintColor = FinLitTheme.accent
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 32, weight: .medium)
-        titleLabel.text = "Я умею искать и считать"
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        titleLabel.textColor = .label
-        subtitleLabel.text = "Например: «Сколько я перевёл Даниялу?»,\n«Покажи траты на еду за сентябрь»\nили «Найди регулярные платежи»"
-        subtitleLabel.font = .systemFont(ofSize: 13)
-        subtitleLabel.textColor = .tertiaryLabel
-        subtitleLabel.textAlignment = .center
-        subtitleLabel.numberOfLines = 0
-
-        emptyStateView.addArrangedSubview(icon)
-        emptyStateView.addArrangedSubview(titleLabel)
-        emptyStateView.addArrangedSubview(subtitleLabel)
-        view.insertSubview(emptyStateView, aboveSubview: scrollView)
-        NSLayoutConstraint.activate([
-            emptyStateView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyStateView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),
-            emptyStateView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
-            emptyStateView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
-        ])
-    }
-
-    private func setupComposer() {
-        composer.translatesAutoresizingMaskIntoConstraints = false
-        composer.backgroundColor = FinLitTheme.surface
-        composer.layer.cornerRadius = 24
-        composer.layer.cornerCurve = .continuous
-        composer.layer.borderWidth = 1
-        composer.layer.borderColor = UIColor.separator.withAlphaComponent(0.35).cgColor
-        composer.layer.shadowColor = UIColor.black.cgColor
-        composer.layer.shadowOpacity = 0.10
-        composer.layer.shadowRadius = 14
-        composer.layer.shadowOffset = CGSize(width: 0, height: 7)
-
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.placeholder = "Спросить про операции…"
-        textField.returnKeyType = .send
-        textField.delegate = self
-        textField.clearButtonMode = .whileEditing
-
-        sendButton.translatesAutoresizingMaskIntoConstraints = false
-        var configuration = UIButton.Configuration.filled()
-        configuration.image = UIImage(systemName: "arrow.up")
-        configuration.cornerStyle = .capsule
-        configuration.baseBackgroundColor = FinLitTheme.accent
-        configuration.baseForegroundColor = .white
-        sendButton.configuration = configuration
-        sendButton.addTarget(self, action: #selector(send), for: .touchUpInside)
-
-        composer.addSubview(textField)
-        composer.addSubview(sendButton)
-        view.addSubview(composer)
-
-        NSLayoutConstraint.activate([
-            composer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            composer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8),
-            composer.heightAnchor.constraint(equalToConstant: 54),
-
-            textField.leadingAnchor.constraint(equalTo: composer.leadingAnchor, constant: 16),
-            textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
-            textField.topAnchor.constraint(equalTo: composer.topAnchor, constant: 7),
-            textField.bottomAnchor.constraint(equalTo: composer.bottomAnchor, constant: -7),
-
-            sendButton.trailingAnchor.constraint(equalTo: composer.trailingAnchor, constant: -6),
-            sendButton.centerYAnchor.constraint(equalTo: composer.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 38),
-            sendButton.heightAnchor.constraint(equalToConstant: 38),
-        ])
-    }
-
-    @objc private func close() { dismiss(animated: true) }
-
-    @objc private func clearChat() {
-        guard !chatMessages.isEmpty else { return }
-        let alert = UIAlertController(
-            title: "Очистить переписку?",
-            message: "Все сообщения AI-чата будут удалены с этого устройства.",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Очистить", style: .destructive) { [weak self] _ in
-            guard let self else { return }
-            self.chatMessages.removeAll()
-            AppStorage.shared.clearAIChatMessages()
-            self.messageStack.arrangedSubviews.forEach { view in
-                self.messageStack.removeArrangedSubview(view)
-                view.removeFromSuperview()
-            }
-            self.typingRow = nil
-            self.updateEmptyState()
-        })
-        present(alert, animated: true)
-    }
-
-    @objc private func send() {
-        let text = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, sendButton.isEnabled else { return }
-        let history = chatMessages
-        textField.text = nil
-        textField.resignFirstResponder()
-        addBubble(text: text, isUser: true)
-        setSending(true)
-        let testerMode = text.range(
-            of: #"^\s*тестер\s*:"#,
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil
-        showTyping(testerMode: testerMode)
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await OpenRouterCategorizer.shared.review(
-                    message: text,
-                    history: history,
-                    transactions: self.transactions
-                )
-                await MainActor.run {
-                    self.hideTyping()
-                    self.setSending(false)
-                    self.addBubble(text: result.reply, isUser: false)
-                    self.offer(result.changes)
-                }
-            } catch {
-                await MainActor.run {
-                    self.hideTyping()
-                    self.setSending(false)
-                    self.addBubble(
-                        text: "Не удалось получить ответ. \(error.localizedDescription)",
-                        isUser: false,
-                        isError: true,
-                        persist: false
-                    )
-                }
-            }
-        }
-    }
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        send()
-        return false
-    }
-
-    private func setSending(_ sending: Bool) {
-        sendButton.isEnabled = !sending
-        textField.isEnabled = !sending
-        sendButton.configuration?.showsActivityIndicator = sending
-        sendButton.configuration?.image = sending ? nil : UIImage(systemName: "arrow.up")
-        navigationItem.rightBarButtonItem?.isEnabled = !sending && !chatMessages.isEmpty
-    }
-
-    private func addBubble(
-        text: String,
-        isUser: Bool,
-        isError: Bool = false,
-        animated: Bool = true,
-        persist: Bool = true
-    ) {
-        if persist {
-            chatMessages.append(
-                AIChatMessage(text: text, role: isUser ? .user : .assistant)
-            )
-            AppStorage.shared.saveAIChatMessages(chatMessages)
-        }
-        let row = UIView()
-        let bubble = UIView()
-        let label = UILabel()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        bubble.translatesAutoresizingMaskIntoConstraints = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        bubble.layer.cornerRadius = 20
-        bubble.layer.cornerCurve = .continuous
-        bubble.backgroundColor = isUser
-            ? FinLitTheme.accent
-            : (isError ? UIColor.systemRed.withAlphaComponent(0.13) : FinLitTheme.surface)
-        label.text = text
-        label.numberOfLines = 0
-        label.font = .systemFont(ofSize: 16)
-        label.textColor = isUser ? .white : (isError ? .systemRed : .label)
-
-        row.addSubview(bubble)
-        bubble.addSubview(label)
-        messageStack.addArrangedSubview(row)
-
-        var constraints = [
-            bubble.topAnchor.constraint(equalTo: row.topAnchor),
-            bubble.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            bubble.widthAnchor.constraint(lessThanOrEqualTo: row.widthAnchor, multiplier: 0.82),
-            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -12),
-            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 15),
-            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -15),
-        ]
-        if isUser {
-            constraints.append(bubble.trailingAnchor.constraint(equalTo: row.trailingAnchor))
-            constraints.append(bubble.leadingAnchor.constraint(greaterThanOrEqualTo: row.leadingAnchor, constant: 48))
-        } else {
-            constraints.append(bubble.leadingAnchor.constraint(equalTo: row.leadingAnchor))
-            constraints.append(bubble.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -48))
-        }
-        NSLayoutConstraint.activate(constraints)
-
-        if animated {
-            row.alpha = 0
-            row.transform = CGAffineTransform(translationX: isUser ? 18 : -18, y: 6)
-            UIView.animate(withDuration: 0.22) {
-                row.alpha = 1
-                row.transform = .identity
-            }
-        }
-        updateEmptyState()
-        scrollToBottom()
-    }
-
-    private func updateEmptyState() {
-        let isEmpty = chatMessages.isEmpty
-        emptyStateView.isHidden = !isEmpty
-        navigationItem.rightBarButtonItem?.isEnabled = !isEmpty && sendButton.isEnabled
-    }
-
-    private func showTyping(testerMode: Bool = false) {
-        hideTyping()
-        let row = UIView()
-        let bubble = UIView()
-        let spinner = UIActivityIndicatorView(style: .medium)
-        let label = UILabel()
-        [row, bubble, spinner, label].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
-        bubble.backgroundColor = FinLitTheme.surface
-        bubble.layer.cornerRadius = 18
-        bubble.layer.cornerCurve = .continuous
-        label.text = testerMode ? "Выполняю тестовую команду…" : "AI готовит ответ…"
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = .secondaryLabel
-        spinner.color = FinLitTheme.accent
-        spinner.startAnimating()
-
-        row.addSubview(bubble)
-        bubble.addSubview(spinner)
-        bubble.addSubview(label)
-        messageStack.addArrangedSubview(row)
-        NSLayoutConstraint.activate([
-            bubble.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            bubble.topAnchor.constraint(equalTo: row.topAnchor),
-            bubble.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            bubble.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -48),
-            spinner.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 14),
-            spinner.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 9),
-            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -14),
-            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -12),
-        ])
-        typingRow = row
-        scrollToBottom()
-    }
-
-    private func hideTyping() {
-        guard let typingRow else { return }
-        messageStack.removeArrangedSubview(typingRow)
-        typingRow.removeFromSuperview()
-        self.typingRow = nil
-    }
-
-    private func scrollToBottom() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.view.layoutIfNeeded()
-            let y = max(
-                -self.scrollView.adjustedContentInset.top,
-                self.scrollView.contentSize.height - self.scrollView.bounds.height + self.scrollView.adjustedContentInset.bottom
-            )
-            self.scrollView.setContentOffset(CGPoint(x: 0, y: y), animated: true)
-        }
-    }
-
-    private func offer(_ proposed: [OpenRouterCategorizer.ReviewChange]) {
-        let byId = Dictionary(uniqueKeysWithValues: transactions.map { ($0.id, $0) })
-        let changes = proposed.filter { change in
-            guard let transaction = byId[change.id] else { return false }
-            return transaction.category != change.category || abs(transaction.amount - change.amount) > 0.001
-        }
-        guard !changes.isEmpty else { return }
-
-        let lines = changes.prefix(5).compactMap { change -> String? in
-            guard let transaction = byId[change.id] else { return nil }
-            var line = "• \(transaction.merchant): \(transaction.category.rawValue) → \(change.category.rawValue)"
-            if abs(transaction.amount - change.amount) > 0.001 {
-                line += "\n  Сумма: \(formatAmount(transaction.amount)) → \(formatAmount(change.amount))"
-            }
-            return line
-        }
-        addCorrectionCard(details: lines.joined(separator: "\n")) { [weak self] in
-            guard let self else { return false }
-            let corrections = Dictionary(uniqueKeysWithValues: changes.map {
-                ($0.id, (amount: $0.amount, category: $0.category))
-            })
-            self.transactions = self.transactions.map { transaction in
-                guard let correction = corrections[transaction.id] else { return transaction }
-                return transaction.withCorrections(
-                    amount: correction.amount,
-                    category: correction.category
-                )
-            }
-            self.onApply(corrections)
-            GamificationManager.shared.recordAIReview(correctionCount: changes.count)
-            self.addBubble(text: "Готово — изменения применены к аналитике.", isUser: false)
-            return true
-        }
-    }
-
-    private func addCorrectionCard(details: String, apply: @escaping () -> Bool) {
-        let card = UIView()
-        let icon = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
-        let titleLabel = UILabel()
-        let detailsLabel = UILabel()
-        let buttonStack = UIStackView()
-        let dismissButton = UIButton(type: .system)
-        let applyButton = UIButton(type: .system)
-        [card, icon, titleLabel, detailsLabel, buttonStack].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
-
-        card.backgroundColor = FinLitTheme.accentSoft
-        card.layer.cornerRadius = 20
-        card.layer.cornerCurve = .continuous
-        card.layer.borderWidth = 1
-        card.layer.borderColor = FinLitTheme.accent.withAlphaComponent(0.25).cgColor
-        icon.tintColor = FinLitTheme.accent
-        titleLabel.text = "Предлагаю исправление"
-        titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
-        detailsLabel.text = details
-        detailsLabel.font = .systemFont(ofSize: 14)
-        detailsLabel.textColor = .secondaryLabel
-        detailsLabel.numberOfLines = 0
-        buttonStack.axis = .horizontal
-        buttonStack.spacing = 10
-        buttonStack.distribution = .fillEqually
-
-        var dismissConfig = UIButton.Configuration.gray()
-        dismissConfig.title = "Оставить как есть"
-        dismissConfig.cornerStyle = .medium
-        dismissButton.configuration = dismissConfig
-        var applyConfig = UIButton.Configuration.filled()
-        applyConfig.title = "Применить"
-        applyConfig.cornerStyle = .medium
-        applyButton.configuration = applyConfig
-
-        card.addSubview(icon)
-        card.addSubview(titleLabel)
-        card.addSubview(detailsLabel)
-        card.addSubview(buttonStack)
-        buttonStack.addArrangedSubview(dismissButton)
-        buttonStack.addArrangedSubview(applyButton)
-        messageStack.addArrangedSubview(card)
-
-        NSLayoutConstraint.activate([
-            icon.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
-            icon.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            icon.widthAnchor.constraint(equalToConstant: 24),
-            icon.heightAnchor.constraint(equalToConstant: 24),
-            titleLabel.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 9),
-            titleLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            detailsLabel.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 12),
-            detailsLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            detailsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            buttonStack.topAnchor.constraint(equalTo: detailsLabel.bottomAnchor, constant: 16),
-            buttonStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            buttonStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            buttonStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
-            buttonStack.heightAnchor.constraint(equalToConstant: 42),
-        ])
-
-        dismissButton.addAction(UIAction { [weak self, weak card] _ in
-            guard let self, let card else { return }
-            self.messageStack.removeArrangedSubview(card)
-            card.removeFromSuperview()
-        }, for: .touchUpInside)
-        applyButton.addAction(UIAction { [weak card] _ in
-            guard apply() else { return }
-            card?.isUserInteractionEnabled = false
-            card?.alpha = 0.55
-            applyButton.configuration?.title = "Применено"
-            applyButton.configuration?.image = UIImage(systemName: "checkmark")
-        }, for: .touchUpInside)
-        scrollToBottom()
-    }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 2
-        let value = formatter.string(from: NSNumber(value: abs(amount))) ?? "0"
-        return "\(amount < 0 ? "−" : "+")\(value) ₸"
-    }
-
 }

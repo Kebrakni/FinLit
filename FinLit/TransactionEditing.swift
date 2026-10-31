@@ -1,45 +1,5 @@
 import UIKit
 
-// MARK: - Learned merchant categories
-
-nonisolated enum LearnedCategoryRules {
-    private static let key = "learned_merchant_categories_v1"
-    private static let ignoredKeys: Set<String> = [
-        "kaspi", "kaspi gold", "payment", "purchase", "покупка", "перевод", "прочее", "other"
-    ]
-
-    static func category(for merchant: String) -> TxCategory? {
-        let merchantKey = normalizedMerchant(merchant)
-        guard canLearn(merchantKey),
-              let code = storedRules()[merchantKey] else { return nil }
-        return TxCategory(aiCode: code)
-    }
-
-    static func learn(merchant: String, category: TxCategory) {
-        let merchantKey = normalizedMerchant(merchant)
-        guard canLearn(merchantKey) else { return }
-        var rules = storedRules()
-        rules[merchantKey] = category.aiCode
-        UserDefaults.standard.set(rules, forKey: key)
-    }
-
-    private static func storedRules() -> [String: String] {
-        UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
-    }
-
-    private static func canLearn(_ value: String) -> Bool {
-        value.count >= 3 && !ignoredKeys.contains(value)
-    }
-
-    private static func normalizedMerchant(_ value: String) -> String {
-        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-            .replacingOccurrences(of: #"[^\p{L}\p{N}]+"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 extension Transaction {
     func edited(
         merchant: String? = nil,
@@ -71,6 +31,8 @@ final class TransactionEditorViewController: UIViewController {
     private let amountField = UITextField()
     private let detailsView = UITextView()
     private let categoryButton = UIButton(type: .system)
+    private let saveButton = UIButton(type: .system)
+    private let errorLabel = UILabel()
 
     init(transaction: Transaction, onSave: @escaping (Transaction) -> Void) {
         original = transaction
@@ -83,19 +45,14 @@ final class TransactionEditorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Редактировать операцию"
+        title = "Операция"
+        navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = FinLitTheme.background
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Отмена",
             style: .plain,
             target: self,
             action: #selector(cancel)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Сохранить",
-            style: .done,
-            target: self,
-            action: #selector(save)
         )
         setupUI()
         populate()
@@ -109,12 +66,27 @@ final class TransactionEditorViewController: UIViewController {
         stackView.spacing = 16
         view.addSubview(scrollView)
         scrollView.addSubview(stackView)
+        let footer = UIStackView(arrangedSubviews: [errorLabel, saveButton])
+        footer.axis = .vertical
+        footer.spacing = 8
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        errorLabel.textColor = .systemRed
+        errorLabel.font = .systemFont(ofSize: 13)
+        errorLabel.numberOfLines = 0
+        errorLabel.isHidden = true
+        FinLitTheme.configurePrimaryButton(saveButton, title: "Сохранить изменения", image: "checkmark")
+        saveButton.addTarget(self, action: #selector(save), for: .touchUpInside)
+        view.addSubview(footer)
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -12),
+            footer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            footer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            footer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -12),
+            saveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 54),
             stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 20),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
             stackView.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 18),
@@ -131,7 +103,7 @@ final class TransactionEditorViewController: UIViewController {
         merchantField.font = .systemFont(ofSize: 16, weight: .medium)
         merchantField.clearButtonMode = .whileEditing
         merchantField.returnKeyType = .next
-        amountField.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        amountField.font = .monospacedDigitSystemFont(ofSize: 26, weight: .bold)
         amountField.keyboardType = .numbersAndPunctuation
         detailsView.font = .systemFont(ofSize: 15)
         detailsView.backgroundColor = .clear
@@ -164,10 +136,12 @@ final class TransactionEditorViewController: UIViewController {
         [card, icon, title, subtitle].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
         FinLitTheme.styleCard(card, radius: 20)
         icon.tintColor = FinLitTheme.accent
+        icon.contentMode = .scaleAspectFit
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 24, weight: .semibold)
-        title.text = "Исправь данные вручную"
+        title.text = "Всё под вашим контролем"
         title.font = .systemFont(ofSize: 17, weight: .bold)
-        subtitle.text = "Выбор категории запомнится для следующих операций этого продавца."
+        title.numberOfLines = 0
+        subtitle.text = "Исправьте сумму или категорию. Мы запомним категорию для этого продавца. Минус в сумме означает расход, плюс — доход."
         subtitle.font = .systemFont(ofSize: 13, weight: .medium)
         subtitle.textColor = .secondaryLabel
         subtitle.numberOfLines = 0
@@ -242,14 +216,11 @@ final class TransactionEditorViewController: UIViewController {
         let amountText = (amountField.text ?? "")
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: ",", with: ".")
-        guard !merchant.isEmpty, let amount = Double(amountText), amount != 0 else {
-            let alert = UIAlertController(
-                title: "Проверь данные",
-                message: "Название не должно быть пустым, а сумма — равна нулю.",
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "Понятно", style: .default))
-            present(alert, animated: true)
+        guard !merchant.isEmpty, let amount = Double(amountText), amount.isFinite,
+              amount != 0, abs(amount) <= 1_000_000_000_000 else {
+            errorLabel.text = "Укажите название и ненулевую сумму операции."
+            errorLabel.isHidden = false
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
             return
         }
         let updated = original.edited(
@@ -260,6 +231,7 @@ final class TransactionEditorViewController: UIViewController {
         )
         AppStorage.shared.updateTransaction(updated, learnCategory: true)
         onSave(updated)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss(animated: true)
     }
 }

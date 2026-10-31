@@ -7,48 +7,58 @@ import Foundation
 
 nonisolated final class Categorizer {
 
+    struct Evidence: Sendable {
+        let category: TxCategory
+        let reason: String
+    }
+
+    /// Only strong, contextual signals belong here; unknown merchants stay open
+    /// to the AI decision. A bank's "Purchases" type is not a spending category.
+    static func evidence(merchant: String, details: String) -> Evidence? {
+        let text = (merchant + " " + details).lowercased()
+        let bankType = details.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if containsAny(text, ["foreign exchange difference", "курсовая разница"]) {
+            return Evidence(category: .other, reason: "Курсовая корректировка, а не покупка")
+        }
+        if containsAny(text, ["kaspi deposit", "пополнение депозита", "депозит", "from my current account kaspi pay", "at kaspi atm", "in the kaspi terminal"]) {
+            return Evidence(category: .internalTransfers, reason: "Перемещение денег между собственными счетами или внесение наличных")
+        }
+        if containsAny(text, ["kaspi red", "kaspi credit"]) {
+            return Evidence(category: .loans, reason: "Платёж Kaspi Red/Credit")
+        }
+        if matches(bankType, #"^(withdrawals|снятие)\b"#) {
+            return Evidence(category: .cashWithdrawals, reason: "Банк указал снятие наличных")
+        }
+        if matches(bankType, #"^(transfers|replenishment|перевод|пополнение)\b"#) {
+            return Evidence(category: .transfers, reason: "Банк указал перевод или пополнение")
+        }
+        if matches(text, #"(?:^|[^\p{L}\p{N}])(?:subcr|subscr|subscription|subscriptions|recurring)(?=$|[^\p{L}])|подписк|автопродлен"#) {
+            return Evidence(category: .subscriptions, reason: "В описании есть явная пометка подписки: SUBCR/SUBSCR/subscription/recurring")
+        }
+        let normalized = text.replacingOccurrences(of: #"[^\p{L}\p{N}]+"#, with: " ", options: .regularExpression)
+        if matches(normalized, #"(?:^|\s)(?:dodo\s*pizza|додо\s*пицц[аы])(?:$|\s)"#) {
+            return Evidence(category: .cafes, reason: "Dodo Pizza / Додо Пицца — заказ готовой еды")
+        }
+        return nil
+    }
+
+    static func validatedCategory(merchant: String, details: String, aiCategory: TxCategory?, manualCategory: TxCategory? = nil) -> TxCategory? {
+        manualCategory ?? evidence(merchant: merchant, details: details)?.category ?? aiCategory
+    }
+
+    static func finalCategory(for transaction: Transaction, aiCategory: TxCategory?) -> TxCategory {
+        validatedCategory(
+            merchant: transaction.merchant, details: transaction.details, aiCategory: aiCategory,
+            manualCategory: LearnedCategoryRules.manualCategory(for: transaction.merchant)
+        ) ?? categorize(merchant: transaction.merchant, details: transaction.details)
+    }
+
     static func categorize(merchant: String, details: String) -> TxCategory {
         let text = (merchant + " " + details).lowercased()
         let detailsLow = details.lowercased()
 
-        // A confirmed manual/AI correction has priority over generic keyword
-        // rules. Rules are stored only for sufficiently specific merchant names.
-        if let learned = LearnedCategoryRules.category(for: merchant) {
-            return learned
-        }
-
-        // 0) Internal transfers: Kaspi Deposit, ATM deposits, Kaspi Pay internal
-        if containsAny(text, [
-            "kaspi deposit", "пополнение депозита", "депозит",
-            "from my current account kaspi pay",
-            "at kaspi atm", "in the kaspi terminal"
-        ]) {
-            return .internalTransfers
-        }
-
-        // 1) Loan / credit payments (Kaspi Red, Kaspi Credit)
-        if containsAny(text, [
-            "pay for kaspi red", "pay for kaspi credit",
-            "kaspi red", "kaspi credit"
-        ]) {
-            return .loans
-        }
-
-        // A positive correction created by card currency conversion is not a purchase.
-        if containsAny(text, ["foreign exchange difference", "курсовая разница"]) {
-            return .other
-        }
-
-        // The operation type comes from the bank statement and is more reliable
-        // than a merchant-like word in the description. Never let a recipient
-        // name turn a transfer into a purchase.
-        if detailsLow.hasPrefix("withdrawals") {
-            return .cashWithdrawals
-        }
-
-        if detailsLow.hasPrefix("transfers") || detailsLow.hasPrefix("replenishment") {
-            return .transfers
-        }
+        if let manual = LearnedCategoryRules.manualCategory(for: merchant) { return manual }
+        if let evidence = evidence(merchant: merchant, details: details) { return evidence.category }
 
         // 2) Taxes, fines, government fees
         if containsAny(text, [
@@ -103,7 +113,7 @@ nonisolated final class Categorizer {
             "wolt", "yandex.eda", "kfc", "popeyes", "starbucks",
             "cafe", "coffee", "кофейн", "ресторан",
             "bal samsa", "бал самса", "онигири", "нори",
-            "prime kitchen", "hardee", "самса", "шаурма"
+            "prime kitchen", "hardee", "самса", "шаурма", "pizza", "пицц"
         ]) {
             return .cafes
         }
@@ -118,11 +128,15 @@ nonisolated final class Categorizer {
             return .shopping
         }
 
+        // Unverified AI/legacy memories are a fallback, not a veto over evidence.
+        if let hint = LearnedCategoryRules.category(for: merchant) { return hint }
+
         // --- Type-based fallback rules (use the leading transaction type in details) ---
 
         if detailsLow.hasPrefix("purchases") {
-            // Unknown purchase merchant → shopping
-            return .shopping
+            // The bank's purchase type also includes meals, subscriptions and
+            // services. Keep an opaque merchant unresolved rather than inventing goods.
+            return .other
         }
 
         return .other
@@ -131,5 +145,9 @@ nonisolated final class Categorizer {
     private static func containsAny(_ text: String, _ keywords: [String]) -> Bool {
         for k in keywords where text.contains(k.lowercased()) { return true }
         return false
+    }
+
+    private static func matches(_ text: String, _ pattern: String) -> Bool {
+        text.range(of: pattern, options: .regularExpression) != nil
     }
 }
