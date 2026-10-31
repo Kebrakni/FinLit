@@ -4,7 +4,7 @@ import UIKit
 final class CategoryDetailViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
 
     private let category: TxCategory
-    private let transactions: [Transaction]
+    private var transactions: [Transaction]
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
 
     init(category: TxCategory, transactions: [Transaction]) {
@@ -32,13 +32,14 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FinLitTheme.background
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate = self
         tableView.separatorStyle = .none
-        tableView.backgroundColor = .systemBackground
+        tableView.backgroundColor = .clear
+        tableView.showsVerticalScrollIndicator = false
         tableView.register(TransactionCell.self, forCellReuseIdentifier: "TxCell")
 
         view.addSubview(tableView)
@@ -68,6 +69,27 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         80
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let transaction = transactions[indexPath.row]
+        let editor = TransactionEditorViewController(transaction: transaction) { [weak self] updated in
+            guard let self else { return }
+            if updated.category == self.category {
+                self.transactions[indexPath.row] = updated
+            } else {
+                self.transactions.remove(at: indexPath.row)
+            }
+            self.tableView.reloadData()
+        }
+        let navigation = UINavigationController(rootViewController: editor)
+        navigation.modalPresentationStyle = .pageSheet
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 28
+        }
+        present(navigation, animated: true)
     }
 }
 

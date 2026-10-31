@@ -23,7 +23,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
 
     // MARK: - State
 
-    private let all: [Transaction]
+    private var all: [Transaction]
     private var filtered: [Transaction] = []
     private var selectedFilter: Filter = .all
 
@@ -63,7 +63,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FinLitTheme.background
         setupFilterBar()
         setupTableView()
     }
@@ -84,9 +84,10 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
             let btn = UIButton(type: .system)
             btn.setTitle(filter.title, for: .normal)
             btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
-            btn.layer.cornerRadius = 14
-            btn.layer.borderWidth = 1.5
-            btn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+            btn.layer.cornerRadius = 16
+            btn.layer.cornerCurve = .continuous
+            btn.layer.borderWidth = 0
+            btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 15, bottom: 8, right: 15)
             btn.tag = filter.rawValue
             btn.addTarget(self, action: #selector(filterTapped(_:)), for: .touchUpInside)
             filterStack.addArrangedSubview(btn)
@@ -117,7 +118,8 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
         tableView.dataSource = self
         tableView.delegate = self
         tableView.separatorStyle = .none
-        tableView.backgroundColor = .systemBackground
+        tableView.backgroundColor = .clear
+        tableView.showsVerticalScrollIndicator = false
         tableView.register(TransactionCell.self, forCellReuseIdentifier: "TxCell")
 
         view.addSubview(tableView)
@@ -159,9 +161,12 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
             let filter = Filter(rawValue: btn.tag) ?? .all
             let isSelected = filter == selectedFilter
             UIView.animate(withDuration: 0.15) {
-                btn.backgroundColor = isSelected ? .systemBlue : .clear
-                btn.setTitleColor(isSelected ? .white : .systemBlue, for: .normal)
-                btn.layer.borderColor = UIColor.systemBlue.cgColor
+                btn.backgroundColor = isSelected ? FinLitTheme.accent : FinLitTheme.surface
+                btn.setTitleColor(isSelected ? .white : .secondaryLabel, for: .normal)
+                btn.layer.shadowColor = UIColor.black.cgColor
+                btn.layer.shadowOpacity = isSelected ? 0.15 : 0.04
+                btn.layer.shadowRadius = isSelected ? 8 : 4
+                btn.layer.shadowOffset = CGSize(width: 0, height: 3)
             }
         }
     }
@@ -185,6 +190,24 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         80
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let transaction = filtered[indexPath.row]
+        let editor = TransactionEditorViewController(transaction: transaction) { [weak self] updated in
+            guard let self,
+                  let index = self.all.firstIndex(where: { $0.id == updated.id }) else { return }
+            self.all[index] = updated
+            self.applyFilter()
+        }
+        let navigation = UINavigationController(rootViewController: editor)
+        navigation.modalPresentationStyle = .pageSheet
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 28
+        }
+        present(navigation, animated: true)
     }
 
     // MARK: - Formatting

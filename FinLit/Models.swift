@@ -26,7 +26,7 @@ struct Challenge: Codable, Identifiable {
     var participants: [String]
 }
 
-enum TxCategory: String, CaseIterable, Hashable, Codable {
+nonisolated enum TxCategory: String, CaseIterable, Hashable, Codable {
     case food            = "Продукты"
     case cafes           = "Кафе/еда"
     case transport       = "Транспорт"
@@ -127,7 +127,7 @@ enum TxCategory: String, CaseIterable, Hashable, Codable {
     }
 }
 
-struct Transaction: Codable, Identifiable {
+nonisolated struct Transaction: Codable, Identifiable {
     let id: String
     let date: Date
     let amount: Double
@@ -148,5 +148,29 @@ struct Transaction: Codable, Identifiable {
     func withCategory(_ category: TxCategory) -> Transaction {
         Transaction(id: id, date: date, amount: amount, merchant: merchant,
                     details: details, category: category)
+    }
+
+    func withCorrections(amount: Double? = nil, category: TxCategory? = nil) -> Transaction {
+        Transaction(id: id, date: date, amount: amount ?? self.amount, merchant: merchant,
+                    details: details, category: category ?? self.category)
+    }
+}
+
+nonisolated struct AIChatMessage: Codable, Identifiable {
+    enum Role: String, Codable {
+        case user
+        case assistant
+    }
+
+    let id: String
+    let date: Date
+    let text: String
+    let role: Role
+
+    init(id: String = UUID().uuidString, date: Date = Date(), text: String, role: Role) {
+        self.id = id
+        self.date = date
+        self.text = text
+        self.role = role
     }
 }

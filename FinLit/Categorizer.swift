@@ -5,11 +5,17 @@
 
 import Foundation
 
-final class Categorizer {
+nonisolated final class Categorizer {
 
     static func categorize(merchant: String, details: String) -> TxCategory {
         let text = (merchant + " " + details).lowercased()
         let detailsLow = details.lowercased()
+
+        // A confirmed manual/AI correction has priority over generic keyword
+        // rules. Rules are stored only for sufficiently specific merchant names.
+        if let learned = LearnedCategoryRules.category(for: merchant) {
+            return learned
+        }
 
         // 0) Internal transfers: Kaspi Deposit, ATM deposits, Kaspi Pay internal
         if containsAny(text, [
@@ -28,6 +34,22 @@ final class Categorizer {
             return .loans
         }
 
+        // A positive correction created by card currency conversion is not a purchase.
+        if containsAny(text, ["foreign exchange difference", "курсовая разница"]) {
+            return .other
+        }
+
+        // The operation type comes from the bank statement and is more reliable
+        // than a merchant-like word in the description. Never let a recipient
+        // name turn a transfer into a purchase.
+        if detailsLow.hasPrefix("withdrawals") {
+            return .cashWithdrawals
+        }
+
+        if detailsLow.hasPrefix("transfers") || detailsLow.hasPrefix("replenishment") {
+            return .transfers
+        }
+
         // 2) Taxes, fines, government fees
         if containsAny(text, [
             "штраф", "налог", "tax", "fine", "penalty", "фискал"
@@ -37,7 +59,7 @@ final class Categorizer {
 
         // 3) Digital subscriptions & cloud services
         if containsAny(text, [
-            "google *play", "google play", "apple.com",
+            "google *play", "google play", "google*google services", "google services", "apple.com",
             "spotify", "netflix", "youtube premium",
             "aws emea", "aws ", "amazon web", "subscription"
         ]) {
@@ -97,19 +119,6 @@ final class Categorizer {
         }
 
         // --- Type-based fallback rules (use the leading transaction type in details) ---
-
-        if detailsLow.hasPrefix("withdrawals") {
-            return .cashWithdrawals
-        }
-
-        if detailsLow.hasPrefix("transfers") {
-            return .transfers
-        }
-
-        if detailsLow.hasPrefix("replenishment") {
-            // Receiving money from someone = incoming transfer
-            return .transfers
-        }
 
         if detailsLow.hasPrefix("purchases") {
             // Unknown purchase merchant → shopping

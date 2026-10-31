@@ -26,14 +26,12 @@ struct FirebaseBattleRoom {
     let id: String               // documentID = 6-символьный код
     let hostId: String
     let goalAmount: Double
-    var members: [[String: Any]] // [{uid, name, saved, updatedAt}]
+    var members: [[String: Any]] // [{uid, name, saved, target, updatedAt}]
 
     static func fromDict(_ id: String, _ d: [String: Any]) -> FirebaseBattleRoom? {
-        guard
-            let host = d["hostId"] as? String,
-            let goal = d["goalAmount"] as? Double,
-            let members = d["members"] as? [[String: Any]]
-        else { return nil }
+        guard let host = d["hostId"] as? String,
+              let goal = number(d["goalAmount"]),
+              let members = d["members"] as? [[String: Any]] else { return nil }
         return FirebaseBattleRoom(id: id, hostId: host, goalAmount: goal, members: members)
     }
 
@@ -41,16 +39,30 @@ struct FirebaseBattleRoom {
         members.compactMap { m in
             guard let uid  = m["uid"]   as? String,
                   let name = m["name"]  as? String,
-                  let saved = m["saved"] as? Double
+                  let saved = Self.number(m["saved"])
             else { return nil }
+            // Older rooms did not store personal targets. Their room goal is a
+            // safe fallback until each member opens the updated app.
+            let personalTarget = Self.number(m["target"]) ?? goalAmount
             return BattleParticipant(
                 id: uid,
                 name: name,
                 savedAmount: saved,
-                targetAmount: goalAmount,
+                targetAmount: max(personalTarget, 1),
                 joinedAt: Date()
             )
-        }.sorted { $0.savedAmount > $1.savedAmount }
+        }.sorted {
+            if abs($0.progress - $1.progress) > 0.0001 {
+                return $0.progress > $1.progress
+            }
+            return $0.savedAmount > $1.savedAmount
+        }
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
     }
 }
 
@@ -77,8 +89,13 @@ final class BattleCell: UITableViewCell {
         backgroundColor = .clear; selectionStyle = .none
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = .secondarySystemBackground
-        cardView.layer.cornerRadius = 16
+        cardView.backgroundColor = FinLitTheme.surface
+        cardView.layer.cornerRadius = 20
+        cardView.layer.cornerCurve = .continuous
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = 0.055
+        cardView.layer.shadowRadius = 10
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 5)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarView.layer.cornerRadius = 24; avatarView.clipsToBounds = true
@@ -201,34 +218,37 @@ final class BattleCell: UITableViewCell {
 
         let isNeg = participant.savedAmount < 0
         let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
-        let absStr = f.string(from: NSNumber(value: abs(participant.savedAmount))) ?? "0"
-        amountLabel.text  = "\(isNeg ? "-" : "+")\(absStr) ₸"
-        amountLabel.textColor = isNeg ? .systemRed : .systemGreen
+        let pct = participant.progress * 100
+        amountLabel.text = String(format: "%.0f%%", pct)
+        amountLabel.textColor = isMe ? FinLitTheme.accent : (isNeg ? .systemRed : .systemGreen)
 
-        let badgeSymbol = isNeg ? "chart.line.downtrend.xyaxis" : "chart.line.uptrend.xyaxis"
+        let reachedGoal = participant.progress >= 1
+        let badgeSymbol = reachedGoal
+            ? "checkmark.circle.fill"
+            : (isNeg ? "arrow.counterclockwise" : "flag.fill")
         let badgeImg = UIImage(systemName: badgeSymbol)?.withRenderingMode(.alwaysOriginal)
-            .withTintColor(isNeg ? .systemRed : .systemGreen)
+            .withTintColor(reachedGoal ? FinLitTheme.accent : (isNeg ? .systemOrange : .systemGreen))
         let badgeAttachment = NSTextAttachment()
         badgeAttachment.image = badgeImg
         badgeAttachment.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)
         let badgeAttr = NSMutableAttributedString(string: "  ")
         badgeAttr.append(NSAttributedString(attachment: badgeAttachment))
-        badgeAttr.append(NSAttributedString(string: isNeg ? " в минусе  " : " в плюсе  "))
+        let badgeText = reachedGoal ? " цель достигнута  " : (isNeg ? " начинаем заново  " : " личная цель  ")
+        badgeAttr.append(NSAttributedString(string: badgeText))
         statusBadge.attributedText = badgeAttr
-        statusBadge.backgroundColor = isNeg
-            ? UIColor.systemRed.withAlphaComponent(0.15)
-            : UIColor.systemGreen.withAlphaComponent(0.15)
-        statusBadge.textColor = isNeg ? .systemRed : .systemGreen
+        let badgeColor = reachedGoal ? FinLitTheme.accent : (isNeg ? UIColor.systemOrange : .systemGreen)
+        statusBadge.backgroundColor = badgeColor.withAlphaComponent(0.15)
+        statusBadge.textColor = badgeColor
 
         progressBar.setProgress(Float(participant.progress), animated: true)
-        progressBar.progressTintColor = isMe ? .systemBlue : (isNeg ? .systemRed : .systemGreen)
+        progressBar.progressTintColor = isMe ? FinLitTheme.accent : (isNeg ? .systemRed : .systemGreen)
 
-        let pct = participant.progress * 100
+        let savedStr = f.string(from: NSNumber(value: max(participant.savedAmount, 0))) ?? "0"
         let targetStr = f.string(from: NSNumber(value: participant.targetAmount)) ?? "0"
-        progressLabel.text = String(format: "%.2f%% к цели %@ ₸", pct, targetStr)
+        progressLabel.text = "\(savedStr) из \(targetStr) ₸"
 
         cardView.layer.borderWidth = isMe ? 2 : 0
-        cardView.layer.borderColor = UIColor.systemBlue.cgColor
+        cardView.layer.borderColor = FinLitTheme.accent.cgColor
     }
 }
 
@@ -280,7 +300,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Битва накоплений"
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FinLitTheme.background
         setupNav()
         setupUI()
         loadLocalFallback()
@@ -288,6 +308,10 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         NotificationCenter.default.addObserver(
             self, selector: #selector(onPDFUpdated),
             name: .pdfNetSavingsUpdated, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(onPDFUpdated),
+            name: GamificationManager.updatedNotification, object: nil
         )
 
         // Переподключиться к комнате если была
@@ -357,18 +381,23 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         trophyLabel.textAlignment = .center
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.text = "Кто больше накопил?"
+        subtitleLabel.text = "Кто ближе к своей цели?"
         subtitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         subtitleLabel.textAlignment = .center
 
         // Карточка "Мой счёт"
         myStatsCard.translatesAutoresizingMaskIntoConstraints = false
-        myStatsCard.layer.cornerRadius = 14; myStatsCard.layer.borderWidth = 1.5
-        myStatsCard.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.08)
+        myStatsCard.layer.cornerRadius = 22; myStatsCard.layer.borderWidth = 1
+        myStatsCard.layer.cornerCurve = .continuous
+        myStatsCard.backgroundColor = FinLitTheme.surface
         myStatsCard.layer.borderColor = UIColor.systemGreen.withAlphaComponent(0.3).cgColor
+        myStatsCard.layer.shadowColor = UIColor.black.cgColor
+        myStatsCard.layer.shadowOpacity = 0.06
+        myStatsCard.layer.shadowRadius = 12
+        myStatsCard.layer.shadowOffset = CGSize(width: 0, height: 6)
 
         myNetTitle.translatesAutoresizingMaskIntoConstraints = false
-        myNetTitle.text = "Твой счёт в битве (из выписок)"
+        myNetTitle.text = "Твой прогресс в битве"
         myNetTitle.font = .systemFont(ofSize: 13); myNetTitle.textColor = .secondaryLabel
 
         myNetLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -376,13 +405,13 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         myNetLabel.text = "Загрузи PDF →"; myNetLabel.textColor = .secondaryLabel
 
         myNetHint.translatesAutoresizingMaskIntoConstraints = false
-        myNetHint.text = "обновляется автоматически после загрузки PDF в Аналитике"
+        myNetHint.text = "Сравниваем процент личной цели — так честнее при разных доходах"
         myNetHint.font = .systemFont(ofSize: 11); myNetHint.textColor = .secondaryLabel
         myNetHint.numberOfLines = 2
 
         roomCodeLabel.translatesAutoresizingMaskIntoConstraints = false
         roomCodeLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
-        roomCodeLabel.textColor = .systemBlue; roomCodeLabel.textAlignment = .center
+        roomCodeLabel.textColor = FinLitTheme.accent; roomCodeLabel.textAlignment = .center
         roomCodeLabel.numberOfLines = 1
         updateRoomCodeLabel()
 
@@ -393,10 +422,11 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
         // Кнопка действия (создать/войти)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
-        actionButton.backgroundColor = .systemBlue; actionButton.tintColor = .white
-        actionButton.layer.cornerRadius = 14
-        actionButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
-        actionButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        FinLitTheme.configurePrimaryButton(
+            actionButton,
+            title: "Создать или войти в комнату",
+            image: "person.2.fill"
+        )
         actionButton.addTarget(self, action: #selector(didTapActionButton), for: .touchUpInside)
         updateActionButton()
 
@@ -446,7 +476,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         tableView.separatorStyle = .none; tableView.backgroundColor = .clear
 
         let hdr = UILabel()
-        hdr.text = "  Таблица лидеров"
+        hdr.text = "  Рейтинг по проценту личной цели"
         hdr.font = .systemFont(ofSize: 13, weight: .semibold); hdr.textColor = .secondaryLabel
         hdr.frame = CGRect(x: 0, y: 0, width: 200, height: 32)
         tableView.tableHeaderView = hdr
@@ -468,9 +498,15 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - Firebase: Create Room
 
     @objc private func didTapCreateRoom() {
-        let alert = UIAlertController(title: "Создать комнату", message: "Введи общую цель накопления", preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: "Создать комнату",
+            message: "У каждого участника будет своя цель. Побеждает тот, кто выполнит больший процент.",
+            preferredStyle: .alert
+        )
         alert.addTextField { tf in
-            tf.placeholder = "Цель ₸ (например: 350000)"
+            let target = AppStorage.shared.loadGoal().targetAmount
+            tf.placeholder = "Твоя цель ₸"
+            tf.text = String(Int(target))
             tf.keyboardType = .numberPad
         }
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
@@ -478,9 +514,13 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             guard let self else { return }
             let goalStr = (alert.textFields?.first?.text ?? "").replacingOccurrences(of: " ", with: "")
             let goal = Double(goalStr) ?? AppStorage.shared.loadGoal().targetAmount
+            guard goal > 0 else {
+                self.showAlert("Проверь цель", "Сумма цели должна быть больше нуля.")
+                return
+            }
 
             let roomId = self.makeRoomCode()
-            let net = AppStorage.shared.loadPDFNetSavings()
+            let saved = AppStorage.shared.loadCombinedSavings()
 
             let data: [String: Any] = [
                 "hostId": self.myUid,
@@ -490,7 +530,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                     [
                         "uid": self.myUid,
                         "name": self.myName,
-                        "saved": net,
+                        "saved": saved,
+                        "target": goal,
                         "updatedAt": Timestamp(date: Date())
                     ]
                 ]
@@ -552,19 +593,23 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                 var members = data["members"] as? [[String: Any]] ?? []
                 let alreadyIn = members.contains { $0["uid"] as? String == self.myUid }
 
-                let net = AppStorage.shared.loadPDFNetSavings()
+                let personalGoal = AppStorage.shared.loadGoal()
+                let saved = AppStorage.shared.loadCombinedSavings()
+                let personalTarget = personalGoal.targetAmount
 
                 if alreadyIn {
                     // просто обновить сумму
                     for i in members.indices where members[i]["uid"] as? String == self.myUid {
-                        members[i]["saved"] = net
+                        members[i]["saved"] = saved
+                        members[i]["target"] = personalTarget
                         members[i]["updatedAt"] = Timestamp(date: Date())
                     }
                 } else {
                     members.append([
                         "uid": self.myUid,
                         "name": self.myName,
-                        "saved": net,
+                        "saved": saved,
+                        "target": personalTarget,
                         "updatedAt": Timestamp(date: Date())
                     ])
                 }
@@ -610,9 +655,11 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                     for member in room.members {
                         guard let uid   = member["uid"]   as? String,
                               let name  = member["name"]  as? String,
-                              let saved = member["saved"]  as? Double,
                               uid != self.myUid
                         else { continue }
+                        let saved = (member["saved"] as? NSNumber)?.doubleValue
+                            ?? member["saved"] as? Double
+                            ?? 0
                         let key = "last_known_\(uid)"
                         let prev = UserDefaults.standard.double(forKey: key)
                         if prev != saved && prev != 0 {
@@ -634,7 +681,9 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             loadLocalFallback()
             return
         }
-        let net = AppStorage.shared.loadPDFNetSavings()
+        let personalGoal = AppStorage.shared.loadGoal()
+        let saved = AppStorage.shared.loadCombinedSavings()
+        let personalTarget = personalGoal.targetAmount
         let ref = db.collection("battleRooms").document(roomId)
 
         ref.getDocument { [weak self] snapshot, _ in
@@ -642,17 +691,24 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
             var found = false
             for i in members.indices where members[i]["uid"] as? String == self.myUid {
-                members[i]["saved"] = net
+                members[i]["saved"] = saved
+                members[i]["target"] = personalTarget
                 members[i]["updatedAt"] = Timestamp(date: Date())
                 found = true
             }
             if !found {
-                members.append(["uid": self.myUid, "name": self.myName, "saved": net, "updatedAt": Timestamp(date: Date())])
+                members.append([
+                    "uid": self.myUid,
+                    "name": self.myName,
+                    "saved": saved,
+                    "target": personalTarget,
+                    "updatedAt": Timestamp(date: Date()),
+                ])
             }
             ref.updateData(["members": members])
         }
 
-        updateMyCard(net: net)
+        updateMyCard(net: saved, target: personalTarget)
     }
 
     // MARK: - Leave Room
@@ -685,17 +741,17 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func loadLocalFallback() {
         localParticipants = AppStorage.shared.loadBattleParticipants()
-        let net  = AppStorage.shared.loadPDFNetSavings()
         let goal = AppStorage.shared.loadGoal()
+        let saved = AppStorage.shared.loadCombinedSavings()
         let myId = "me_local"
 
         if let idx = localParticipants.firstIndex(where: { $0.id == myId }) {
-            localParticipants[idx].savedAmount  = net
+            localParticipants[idx].savedAmount  = saved
             localParticipants[idx].targetAmount = goal.targetAmount
             localParticipants[idx].name         = myName
         } else {
             localParticipants.insert(
-                BattleParticipant(id: myId, name: myName, savedAmount: net,
+                BattleParticipant(id: myId, name: myName, savedAmount: saved,
                                   targetAmount: goal.targetAmount, joinedAt: Date()), at: 0
             )
         }
@@ -703,10 +759,15 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
         // Показываем локальных только если нет Firebase комнаты
         if currentRoomId == nil {
-            sorted = localParticipants.sorted { $0.savedAmount > $1.savedAmount }
+            sorted = localParticipants.sorted {
+                if abs($0.progress - $1.progress) > 0.0001 {
+                    return $0.progress > $1.progress
+                }
+                return $0.savedAmount > $1.savedAmount
+            }
             tableView.reloadData()
         }
-        updateMyCard(net: net)
+        updateMyCard(net: saved, target: goal.targetAmount)
     }
 
     @objc private func onPDFUpdated() {
@@ -715,16 +776,17 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     // MARK: - UI Helpers
 
-    private func updateMyCard(net: Double) {
-        let hasPDF = AppStorage.shared.loadAllTransactions().count > 0
-        guard hasPDF else { return }
-
+    private func updateMyCard(net: Double, target: Double? = nil) {
         let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
         let isNeg  = net < 0
-        let absStr = f.string(from: NSNumber(value: abs(net))) ?? "0"
+        let personalTarget = max(target ?? AppStorage.shared.loadGoal().targetAmount, 1)
+        let progress = min(max(net / personalTarget, 0), 1)
+        let savedStr = f.string(from: NSNumber(value: max(net, 0))) ?? "0"
+        let targetStr = f.string(from: NSNumber(value: personalTarget)) ?? "0"
 
-        myNetLabel.text      = "\(isNeg ? "-" : "+")\(absStr) ₸"
-        myNetLabel.textColor = isNeg ? .systemRed : .systemGreen
+        myNetLabel.text = String(format: "%.0f%% цели", progress * 100)
+        myNetLabel.textColor = isNeg ? .systemOrange : FinLitTheme.accent
+        myNetHint.text = "\(savedStr) из \(targetStr) ₸ • выписка + добавлено вручную"
 
         myStatsCard.backgroundColor  = isNeg
             ? UIColor.systemRed.withAlphaComponent(0.1)
@@ -735,13 +797,19 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func updateMyCardFromRoom(_ room: FirebaseBattleRoom) {
         let me = room.members.first { $0["uid"] as? String == myUid }
-        let saved = me?["saved"] as? Double ?? 0
-        updateMyCard(net: saved)
+        let saved = (me?["saved"] as? NSNumber)?.doubleValue
+            ?? me?["saved"] as? Double
+            ?? 0
+        let target = (me?["target"] as? NSNumber)?.doubleValue
+            ?? me?["target"] as? Double
+            ?? room.goalAmount
+        updateMyCard(net: saved, target: target)
     }
 
     private func updateRoomCodeLabel() {
         if let code = currentRoomId {
             roomCodeLabel.text = "Код комнаты: \(code)  (нажми ··· чтобы скопировать)"
+            roomCodeLabel.textColor = FinLitTheme.accent
             roomCodeLabel.isHidden = false
         } else {
             roomCodeLabel.text = "Нет активной комнаты"
@@ -751,11 +819,13 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func updateActionButton() {
+        let title: String
         if currentRoomId == nil {
-            actionButton.setTitle("Создать или войти в комнату", for: .normal)
+            title = "Создать или войти в комнату"
         } else {
-            actionButton.setTitle("Пригласить друга (скопировать код)", for: .normal)
+            title = "Пригласить друга"
         }
+        actionButton.configuration?.title = title
     }
 
     @objc private func didTapActionButton() {

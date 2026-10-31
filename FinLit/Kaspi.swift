@@ -1,7 +1,7 @@
 import Foundation
 import PDFKit
 
-final class KaspiPDFParser {
+nonisolated final class KaspiPDFParser {
 
     struct ParseResult {
         let transactions: [Transaction]
@@ -63,23 +63,35 @@ final class KaspiPDFParser {
             .filter { !isGarbageLine($0) }
 
         var result: [Transaction] = []
-        var i = 0
+        var currentBlock: [String] = []
 
-        while i < lines.count {
-            let line = lines[i]
-            if let parsed = parseTransactionRow(line, nextLine: i + 1 < lines.count ? lines[i + 1] : nil) {
-                result.append(parsed.transaction)
-                i += parsed.linesConsumed
-            } else {
-                i += 1
+        func finishCurrentBlock() {
+            guard !currentBlock.isEmpty else { return }
+            if let transaction = parseTransactionBlock(currentBlock) {
+                result.append(transaction)
+            }
+            currentBlock.removeAll(keepingCapacity: true)
+        }
+
+        for line in lines {
+            if isTransactionStart(line) {
+                finishCurrentBlock()
+                currentBlock = [line]
+            } else if !currentBlock.isEmpty, isTransactionContinuation(line) {
+                currentBlock.append(line)
             }
         }
+        finishCurrentBlock()
 
         return result
     }
 
-    private func parseTransactionRow(_ line: String, nextLine: String?) -> (transaction: Transaction, linesConsumed: Int)? {
-        let pattern = #"^(\d{2}\.\d{2}\.\d{2,4})\s*([+\-]\s*[\d\s]+,\d{2}\s*₸)\s+(Purchases|Transfers|Replenishment|Withdrawals|Others)\s*(.*)$"#
+    private func parseTransactionBlock(_ lines: [String]) -> Transaction? {
+        let line = lines.joined(separator: " ")
+        let foreignAmount = #"(?:\s*\(\s*[+\-]\s*[\d\s]+,\d{2}\s*[A-Z]{3}\s*\))?"#
+        let pattern = #"^(\d{2}\.\d{2}\.\d{2,4})\s*([+\-]\s*[\d\s]+,\d{2}\s*₸)"#
+            + foreignAmount
+            + #"\s+(Purchases|Transfers|Replenishment|Withdrawals|Others)\s*(.*)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
 
         let ns = line as NSString
@@ -90,15 +102,40 @@ final class KaspiPDFParser {
         let amountRaw = ns.substring(with: m.range(at: 2))
         let type = ns.substring(with: m.range(at: 3)).trimmingCharacters(in: .whitespacesAndNewlines)
         var detail = ns.substring(with: m.range(at: 4)).trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var consumed = 1
-        if let nextLine, isCurrencyContinuationLine(nextLine) {
-            consumed = 2
+        var note: String?
+        let exchangeDifference = "foreign exchange difference"
+        if detail.lowercased().hasSuffix(exchangeDifference) {
+            detail = String(detail.dropLast(exchangeDifference.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            note = "Foreign exchange difference"
         }
 
-        guard let tx = buildTransaction(dateStr: dateStr, amountRaw: amountRaw, type: type, detail: detail) else { return nil }
-        if detail.isEmpty { detail = "—" }
-        return (tx, consumed)
+        return buildTransaction(
+            dateStr: dateStr,
+            amountRaw: amountRaw,
+            type: type,
+            detail: detail,
+            note: note
+        )
+    }
+
+    private func isTransactionStart(_ line: String) -> Bool {
+        line.range(
+            of: #"^\d{2}\.\d{2}\.\d{2,4}\s*[+\-]\s*[\d\s]+,\d{2}\s*₸"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func isTransactionContinuation(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        let beginsWithType = lower.range(
+            of: #"^(purchases|transfers|replenishment|withdrawals|others)\b"#,
+            options: .regularExpression
+        ) != nil
+
+        return beginsWithType
+            || isCurrencyContinuationLine(line)
+            || lower == "foreign exchange difference"
     }
 
     // MARK: - Column-wise fallback
@@ -175,7 +212,13 @@ final class KaspiPDFParser {
 
     // MARK: - Build transaction
 
-    private func buildTransaction(dateStr: String, amountRaw: String, type: String, detail: String) -> Transaction? {
+    private func buildTransaction(
+        dateStr: String,
+        amountRaw: String,
+        type: String,
+        detail: String,
+        note: String? = nil
+    ) -> Transaction? {
         guard let date = parseDate(dateStr) else { return nil }
 
         let sign: Double = amountRaw.trimmingCharacters(in: .whitespaces).hasPrefix("-") ? -1 : 1
@@ -189,8 +232,12 @@ final class KaspiPDFParser {
 
         let safeDetail = detail.isEmpty ? "—" : detail
         let safeType = type.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullDetails = "\(safeType) \(safeDetail)".trimmingCharacters(in: .whitespacesAndNewlines)
+        let fullDetails = [safeType, safeDetail, note]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let txId = makeStableID(dateStr: dateStr, amount: amount, type: safeType, detail: safeDetail)
+        let isPositivePurchase = amount > 0 && safeType.lowercased() == "purchases"
 
         return Transaction(
             id: txId,
@@ -198,7 +245,9 @@ final class KaspiPDFParser {
             amount: amount,
             merchant: safeDetail,
             details: fullDetails,
-            category: Categorizer.categorize(merchant: safeDetail, details: fullDetails)
+            category: isPositivePurchase
+                ? .other
+                : Categorizer.categorize(merchant: safeDetail, details: fullDetails)
         )
     }
 

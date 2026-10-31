@@ -1,0 +1,15 @@
+{
+  "name": "finlit-functions",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "start": "firebase emulators:start --only functions"
+  },
+  "dependencies": {
+    "firebase-functions": "^6.4.0"
+  }
+}

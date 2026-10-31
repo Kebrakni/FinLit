@@ -1,5 +1,21 @@
 import Foundation
 
+struct StatementImportPlan {
+    let newTransactions: [Transaction]
+    let statementFrom: Date?
+    let statementTo: Date?
+    let newDays: [Date]
+    let overlappingDays: [Date]
+    let skippedTransactionCount: Int
+
+    var hasOverlap: Bool { !overlappingDays.isEmpty }
+    var isFullyOverlapping: Bool { newTransactions.isEmpty && hasOverlap }
+    var newFrom: Date? { newDays.first }
+    var newTo: Date? { newDays.last }
+    var overlapFrom: Date? { overlappingDays.first }
+    var overlapTo: Date? { overlappingDays.last }
+}
+
 final class AppStorage {
     static let shared = AppStorage()
     private init() {}
@@ -9,7 +25,9 @@ final class AppStorage {
     private let battleKey           = "battle_participants_v1"
     private let allTransactionsKey  = "all_transactions_v2"
     private let fingerprintsKey     = "used_pdf_fingerprints_v1"
+    private let importedDaysKey     = "imported_statement_days_v1"
     private let netSavingsKey       = "pdf_net_savings_v1"
+    private let aiChatMessagesKey   = "ai_chat_messages_v1"
 
     // MARK: - Goal
 
@@ -23,6 +41,19 @@ final class AppStorage {
         if let data = try? JSONEncoder().encode(goal) {
             UserDefaults.standard.set(data, forKey: goalKey)
         }
+    }
+
+    /// `Goal.savedAmount` stores only money entered manually. Statement savings
+    /// are derived from imported transactions so recalculation cannot add them
+    /// repeatedly to the persisted goal.
+    func loadCombinedSavings() -> Double {
+        max(loadGoal().savedAmount, 0) + max(loadPDFNetSavings(), 0)
+    }
+
+    func loadGoalIncludingStatementSavings() -> Goal {
+        var goal = loadGoal()
+        goal.savedAmount = loadCombinedSavings()
+        return goal
     }
 
     // MARK: - Challenges
@@ -53,11 +84,35 @@ final class AppStorage {
         }
     }
 
+    // MARK: - AI Chat
+
+    func loadAIChatMessages() -> [AIChatMessage] {
+        guard let data = UserDefaults.standard.data(forKey: aiChatMessagesKey),
+              let messages = try? JSONDecoder().decode([AIChatMessage].self, from: data) else {
+            return []
+        }
+        return messages
+    }
+
+    func saveAIChatMessages(_ messages: [AIChatMessage]) {
+        // Bound local history so it cannot grow indefinitely.
+        let recent = Array(messages.suffix(200))
+        if let data = try? JSONEncoder().encode(recent) {
+            UserDefaults.standard.set(data, forKey: aiChatMessagesKey)
+        }
+    }
+
+    func clearAIChatMessages() {
+        UserDefaults.standard.removeObject(forKey: aiChatMessagesKey)
+    }
+
     // MARK: - Accumulated Transactions
 
     func loadAllTransactions() -> [Transaction] {
         guard let data = UserDefaults.standard.data(forKey: allTransactionsKey),
               let items = try? JSONDecoder().decode([Transaction].self, from: data) else { return [] }
+
+        // Categories are final after the AI review and must survive relaunches.
         return items
     }
 
@@ -76,14 +131,71 @@ final class AppStorage {
         return existing
     }
 
+    /// Replaces one persisted operation without changing its stable id.
+    /// Manual category changes become merchant rules for future imports.
+    @discardableResult
+    func updateTransaction(
+        _ updatedTransaction: Transaction,
+        learnCategory: Bool = true
+    ) -> [Transaction] {
+        var transactions = loadAllTransactions()
+        guard let index = transactions.firstIndex(where: { $0.id == updatedTransaction.id }) else {
+            return transactions
+        }
+        let original = transactions[index]
+        transactions[index] = updatedTransaction
+        transactions.sort { $0.date > $1.date }
+        if let data = try? JSONEncoder().encode(transactions) {
+            UserDefaults.standard.set(data, forKey: allTransactionsKey)
+        }
+        if learnCategory,
+           original.category != updatedTransaction.category
+            || original.merchant != updatedTransaction.merchant {
+            LearnedCategoryRules.learn(
+                merchant: updatedTransaction.merchant,
+                category: updatedTransaction.category
+            )
+        }
+        recalculateAndSaveNet()
+        NotificationCenter.default.post(name: .transactionsUpdated, object: updatedTransaction.id)
+        return transactions
+    }
+
+    @discardableResult
+    func applyTransactionCorrections(_ corrections: [String: (amount: Double, category: TxCategory)]) -> [Transaction] {
+        let updated = loadAllTransactions().map { transaction in
+            guard let correction = corrections[transaction.id] else { return transaction }
+            if correction.category != transaction.category {
+                LearnedCategoryRules.learn(
+                    merchant: transaction.merchant,
+                    category: correction.category
+                )
+            }
+            return transaction.withCorrections(
+                amount: correction.amount,
+                category: correction.category
+            )
+        }.sorted { $0.date > $1.date }
+
+        if let data = try? JSONEncoder().encode(updated) {
+            UserDefaults.standard.set(data, forKey: allTransactionsKey)
+        }
+        recalculateAndSaveNet()
+        NotificationCenter.default.post(name: .transactionsUpdated, object: nil)
+        return updated
+    }
+
     /// Сброс всех данных
     func clearAllTransactions() {
         UserDefaults.standard.removeObject(forKey: allTransactionsKey)
         UserDefaults.standard.removeObject(forKey: fingerprintsKey)
+        UserDefaults.standard.removeObject(forKey: importedDaysKey)
         UserDefaults.standard.set(0.0, forKey: netSavingsKey)
         var participants = loadBattleParticipants()
         if let idx = participants.firstIndex(where: { $0.id == "me_local" }) {
-            participants[idx].savedAmount = 0
+            let goal = loadGoal()
+            participants[idx].savedAmount = max(goal.savedAmount, 0)
+            participants[idx].targetAmount = goal.targetAmount
             saveBattleParticipants(participants)
         }
         NotificationCenter.default.post(name: .pdfNetSavingsUpdated, object: nil)
@@ -103,14 +215,143 @@ final class AppStorage {
         return loadFingerprints().contains(fingerprint)
     }
 
-    func markAsImported(_ fingerprint: String) {
+    /// Returns the first and last already imported day shared with the new
+    /// statement. Every day between the earliest and latest transaction is
+    /// treated as covered, including days without operations.
+    func importedDateOverlap(
+        for transactions: [Transaction]
+    ) -> (from: Date, to: Date)? {
+        let plan = prepareStatementImport(transactions)
+        guard let first = plan.overlapFrom,
+              let last = plan.overlapTo else { return nil }
+        return (first, last)
+    }
+
+    /// Splits a statement by calendar coverage. Transactions from days already
+    /// imported are removed, while transactions from genuinely new days remain.
+    /// The returned `newDays` also includes covered days without transactions so
+    /// they can be remembered when the plan is committed.
+    func prepareStatementImport(_ transactions: [Transaction]) -> StatementImportPlan {
+        guard let range = statementDateRange(for: transactions) else {
+            return StatementImportPlan(
+                newTransactions: [],
+                statementFrom: nil,
+                statementTo: nil,
+                newDays: [],
+                overlappingDays: [],
+                skippedTransactionCount: 0
+            )
+        }
+
+        let previouslyImported = loadImportedDayIDsIncludingLegacyFingerprints()
+        let statementDays = dates(in: range)
+        let overlappingDays = statementDays.filter {
+            previouslyImported.contains(dayID(for: $0))
+        }
+        let newDays = statementDays.filter {
+            !previouslyImported.contains(dayID(for: $0))
+        }
+        let newDayIDs = Set(newDays.map(dayID(for:)))
+        let accepted = transactions.filter {
+            newDayIDs.contains(dayID(for: $0.date))
+        }
+
+        return StatementImportPlan(
+            newTransactions: accepted,
+            statementFrom: range.lowerBound,
+            statementTo: range.upperBound,
+            newDays: newDays,
+            overlappingDays: overlappingDays,
+            skippedTransactionCount: transactions.count - accepted.count
+        )
+    }
+
+    func markAsImported(_ fingerprint: String, transactions: [Transaction]) {
         var set = loadFingerprints()
         set.insert(fingerprint)
         UserDefaults.standard.set(Array(set), forKey: fingerprintsKey)
+
+        guard let range = statementDateRange(for: transactions) else { return }
+        var importedDays = loadImportedDayIDsIncludingLegacyFingerprints()
+        importedDays.formUnion(dates(in: range).map(dayID(for:)))
+        UserDefaults.standard.set(Array(importedDays).sorted(), forKey: importedDaysKey)
+    }
+
+    /// Commits the exact set of new calendar days from a previously prepared
+    /// plan. Use this overload for partially overlapping statements.
+    func markAsImported(_ fingerprint: String, plan: StatementImportPlan) {
+        var fingerprints = loadFingerprints()
+        fingerprints.insert(fingerprint)
+        UserDefaults.standard.set(Array(fingerprints), forKey: fingerprintsKey)
+
+        var importedDays = loadImportedDayIDsIncludingLegacyFingerprints()
+        importedDays.formUnion(plan.newDays.map(dayID(for:)))
+        UserDefaults.standard.set(Array(importedDays).sorted(), forKey: importedDaysKey)
     }
 
     private func loadFingerprints() -> Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: fingerprintsKey) ?? [])
+    }
+
+    private func loadImportedDayIDsIncludingLegacyFingerprints() -> Set<String> {
+        var importedDays = Set(
+            UserDefaults.standard.stringArray(forKey: importedDaysKey) ?? []
+        )
+        let legacyFormatter = DateFormatter()
+        legacyFormatter.calendar = statementCalendar
+        legacyFormatter.locale = Locale(identifier: "en_US_POSIX")
+        legacyFormatter.dateFormat = "dd.MM.yyyy"
+
+        for fingerprint in loadFingerprints() {
+            let parts = fingerprint.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count >= 2,
+                  let from = legacyFormatter.date(from: String(parts[0])),
+                  let to = legacyFormatter.date(from: String(parts[1])) else { continue }
+            let start = statementCalendar.startOfDay(for: min(from, to))
+            let end = statementCalendar.startOfDay(for: max(from, to))
+            importedDays.formUnion(dates(in: start...end).map(dayID(for:)))
+        }
+        return importedDays
+    }
+
+    private var statementCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
+    private func statementDateRange(
+        for transactions: [Transaction]
+    ) -> ClosedRange<Date>? {
+        guard let minimum = transactions.map(\.date).min(),
+              let maximum = transactions.map(\.date).max() else { return nil }
+        let start = statementCalendar.startOfDay(for: minimum)
+        let end = statementCalendar.startOfDay(for: maximum)
+        return start...end
+    }
+
+    private func dates(in range: ClosedRange<Date>) -> [Date] {
+        var result: [Date] = []
+        var date = range.lowerBound
+        // The cap protects local storage from a malformed date far in the past.
+        while date <= range.upperBound, result.count < 5_000 {
+            result.append(date)
+            guard let next = statementCalendar.date(byAdding: .day, value: 1, to: date) else {
+                break
+            }
+            date = next
+        }
+        return result
+    }
+
+    private func dayID(for date: Date) -> String {
+        let values = statementCalendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            values.year ?? 0,
+            values.month ?? 0,
+            values.day ?? 0
+        )
     }
 
     // MARK: - Net Savings
@@ -124,15 +365,18 @@ final class AppStorage {
 
         UserDefaults.standard.set(net, forKey: netSavingsKey)
 
-        // Обновляем Battle
+        // Battle counts both sources: positive statement balance and money
+        // entered manually (for example cash kept outside the bank statement).
         var participants = loadBattleParticipants()
         let myId = "me_local"
+        let goal = loadGoal()
+        let combinedSavings = max(net, 0) + max(goal.savedAmount, 0)
         if let idx = participants.firstIndex(where: { $0.id == myId }) {
-            participants[idx].savedAmount = net
+            participants[idx].savedAmount = combinedSavings
+            participants[idx].targetAmount = goal.targetAmount
         } else {
-            let goal = loadGoal()
             participants.insert(
-                BattleParticipant(id: myId, name: "Я", savedAmount: net,
+                BattleParticipant(id: myId, name: "Я", savedAmount: combinedSavings,
                                   targetAmount: goal.targetAmount, joinedAt: Date()),
                 at: 0
             )
@@ -150,4 +394,5 @@ final class AppStorage {
 
 extension Notification.Name {
     static let pdfNetSavingsUpdated = Notification.Name("pdfNetSavingsUpdated")
+    static let transactionsUpdated = Notification.Name("finlit.transactions.updated")
 }

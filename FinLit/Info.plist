@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>AI_API_BASE_URL</key>
-	<string>http://127.0.0.1:8787</string>
+	<string>https://europe-west3-finlit-9b600.cloudfunctions.net/openrouterProxy</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

@@ -30,6 +30,7 @@ final class TransactionCell: UITableViewCell {
 
     private let cardView      = UIView()
     private let categoryBar   = UIView()
+    private let iconBackground = UIView()
     private let iconView      = UIImageView()
     private let titleLabel    = UILabel()
     private let categoryLabel = UILabel()
@@ -51,17 +52,27 @@ final class TransactionCell: UITableViewCell {
         selectionStyle = .none
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = .secondarySystemBackground
-        cardView.layer.cornerRadius = 16
+        cardView.backgroundColor = FinLitTheme.surface
+        cardView.layer.cornerRadius = 20
+        cardView.layer.cornerCurve = .continuous
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = 0.055
+        cardView.layer.shadowRadius = 10
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 5)
 
         categoryBar.translatesAutoresizingMaskIntoConstraints = false
         categoryBar.layer.cornerRadius = 2.5
 
+        iconBackground.translatesAutoresizingMaskIntoConstraints = false
+        iconBackground.layer.cornerRadius = 17
+        iconBackground.layer.cornerCurve = .continuous
+
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.numberOfLines = 2
 
         categoryLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -80,38 +91,42 @@ final class TransactionCell: UITableViewCell {
 
         contentView.addSubview(cardView)
         cardView.addSubview(categoryBar)
-        cardView.addSubview(iconView)
+        cardView.addSubview(iconBackground)
+        iconBackground.addSubview(iconView)
         cardView.addSubview(titleLabel)
         cardView.addSubview(categoryLabel)
         cardView.addSubview(dateLabel)
         cardView.addSubview(amountLabel)
 
         NSLayoutConstraint.activate([
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 7),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -7),
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 
-            categoryBar.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 8),
-            categoryBar.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            categoryBar.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
+            categoryBar.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+            categoryBar.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 18),
+            categoryBar.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -18),
             categoryBar.widthAnchor.constraint(equalToConstant: 4),
 
-            iconView.leadingAnchor.constraint(equalTo: categoryBar.trailingAnchor, constant: 10),
-            iconView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
+            iconBackground.leadingAnchor.constraint(equalTo: categoryBar.trailingAnchor, constant: 12),
+            iconBackground.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            iconBackground.widthAnchor.constraint(equalToConstant: 34),
+            iconBackground.heightAnchor.constraint(equalToConstant: 34),
+
+            iconView.centerXAnchor.constraint(equalTo: iconBackground.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconBackground.centerYAnchor),
 
             titleLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: iconBackground.trailingAnchor, constant: 11),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: amountLabel.leadingAnchor, constant: -8),
 
             categoryLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            categoryLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            categoryLabel.leadingAnchor.constraint(equalTo: iconBackground.trailingAnchor, constant: 11),
             categoryLabel.trailingAnchor.constraint(lessThanOrEqualTo: amountLabel.leadingAnchor, constant: -8),
 
             dateLabel.topAnchor.constraint(equalTo: categoryLabel.bottomAnchor, constant: 2),
-            dateLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            dateLabel.leadingAnchor.constraint(equalTo: iconBackground.trailingAnchor, constant: 11),
             dateLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
 
             amountLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
@@ -128,6 +143,7 @@ final class TransactionCell: UITableViewCell {
 
         let color = tx.category.uiColor
         categoryBar.backgroundColor = color
+        iconBackground.backgroundColor = color.withAlphaComponent(0.13)
         iconView.image = UIImage(systemName: tx.category.icon)
         iconView.tintColor = color
     }
