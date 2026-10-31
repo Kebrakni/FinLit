@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import CryptoKit
 
 nonisolated final class KaspiPDFParser {
 
@@ -12,25 +13,64 @@ nonisolated final class KaspiPDFParser {
         guard let doc = PDFDocument(url: pdfURL) else {
             return ParseResult(transactions: [], errors: ["Не открыл PDF"])
         }
+        guard !doc.isLocked else { return ParseResult(transactions: [], errors: ["PDF защищён паролем. Экспортируйте выписку без пароля."]) }
 
+        let pages = (0..<doc.pageCount).compactMap { index -> String? in
+            guard let page = doc.page(at: index), let raw = page.string else { return nil }
+            let visual = visualRows(on: page)
+            let rawStarts = raw.components(separatedBy: .newlines).filter(isTransactionStart).count
+            let visualStarts = visual.components(separatedBy: .newlines).filter(isTransactionStart).count
+            return visualStarts > rawStarts ? visual : raw
+        }
+        guard pages.count == doc.pageCount else {
+            return ParseResult(transactions: [], errors: ["Не удалось прочитать текст всех страниц. Нужен PDF с текстом, а не скан или фотография."])
+        }
+        return parseExtractedPages(pages)
+    }
+
+    /// Some Kaspi PDFs expose an entire date/amount/type column as one string.
+    /// Reconstruct visual rows by PDF coordinates rather than guessing which
+    /// of several description lines belongs to which amount.
+    private func visualRows(on page: PDFPage) -> String {
+        let selections = page.selection(for: page.bounds(for: .mediaBox))?.selectionsByLine() ?? []
+        let fragments: [(text: String, bounds: CGRect)] = selections.compactMap { selection in
+            guard let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return (text, selection.bounds(for: page))
+        }.sorted { $0.bounds.midY > $1.bounds.midY }
+        var groups: [[(text: String, bounds: CGRect)]] = []
+        for fragment in fragments {
+            if let last = groups.last, let anchor = last.first, abs(anchor.bounds.midY - fragment.bounds.midY) < 3 {
+                groups[groups.count - 1].append(fragment)
+            } else { groups.append([fragment]) }
+        }
+        return groups.map { group in
+            group.sorted { $0.bounds.minX < $1.bounds.minX }.map(\.text).joined(separator: " ")
+        }.joined(separator: "\n")
+    }
+
+    func parseExtractedPages(_ pages: [String]) -> ParseResult {
         var all: [Transaction] = []
-
-        for i in 0..<doc.pageCount {
-            guard let page = doc.page(at: i),
-                  let raw = page.string,
-                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+        var errors: [String] = []
+        for (index, raw) in pages.enumerated() {
+            guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
 
             let cleaned = normalizePage(stripKaspiPageArtifacts(from: raw))
 
             // 1) Сначала пробуем обычный построчный парсинг
             let rowTx = extractRowWise(from: cleaned)
             if !rowTx.isEmpty {
+                let expected = matches(of: #"(?m)^\d{2}\.\d{2}\.\d{2,4}\s*[+\-]\s*[\d\s]+,\d{2}\s*₸"#, in: cleaned).count
+                if rowTx.count < expected { errors.append("Страница \(index + 1): часть строк не прочитана. Импорт остановлен, чтобы не потерять операции.") }
                 all.append(contentsOf: rowTx)
                 continue
             }
 
             // 2) Если PDFKit отдал таблицу по колонкам — пробуем column-wise fallback
             let columnTx = extractColumnWise(from: cleaned)
+            if columnTx.isEmpty, cleaned.range(of: #"(?i)\b(purchases|transfers|replenishment|withdrawals|others)\b"#, options: .regularExpression) != nil,
+               cleaned.range(of: #"[+\-]\s*[\d\s]+,\d{2}\s*₸"#, options: .regularExpression) != nil {
+                errors.append("Страница \(index + 1): не удалось сопоставить даты, суммы и описания. Импорт остановлен.")
+            }
             all.append(contentsOf: columnTx)
         }
 
@@ -38,19 +78,21 @@ nonisolated final class KaspiPDFParser {
             return ParseResult(transactions: [], errors: ["Транзакции не найдены. Проверь формат выписки."])
         }
 
-        var seen = Set<String>()
-        let deduped = all.filter { tx in
-            let key = [
-                isoDay(tx.date),
-                String(format: "%.2f", tx.amount),
-                normalizeKey(tx.merchant),
-                normalizeKey(tx.details)
-            ].joined(separator: "|")
-            return seen.insert(key).inserted
+        // Equal amounts at the same merchant on the same day can be separate
+        // real payments. Preserve their multiplicity with stable occurrence IDs.
+        var occurrences: [String: Int] = [:]
+        var identified: [Transaction] = []
+        for tx in all {
+            let ordinal = occurrences[tx.id, default: 0] + 1
+            occurrences[tx.id] = ordinal
+            let bytes = SHA256.hash(data: Data(tx.id.utf8))
+            let digest = bytes.map { String(format: "%02x", $0) }.joined()
+            let transaction = Transaction(id: "\(digest)-\(ordinal)", date: tx.date, amount: tx.amount,
+                                          merchant: tx.merchant, details: tx.details, category: tx.category)
+            identified.append(transaction)
         }
-        .sorted { $0.date > $1.date }
-
-        return ParseResult(transactions: deduped, errors: [])
+        identified.sort { $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date }
+        return ParseResult(transactions: identified, errors: errors)
     }
 
     // MARK: - Row-wise
@@ -77,6 +119,8 @@ nonisolated final class KaspiPDFParser {
             if isTransactionStart(line) {
                 finishCurrentBlock()
                 currentBlock = [line]
+            } else if isTableFooter(line) {
+                finishCurrentBlock()
             } else if !currentBlock.isEmpty, isTransactionContinuation(line) {
                 currentBlock.append(line)
             }
@@ -136,6 +180,11 @@ nonisolated final class KaspiPDFParser {
         return beginsWithType
             || isCurrencyContinuationLine(line)
             || lower == "foreign exchange difference"
+            || line.range(of: #"\p{L}"#, options: .regularExpression) != nil
+    }
+
+    private func isTableFooter(_ line: String) -> Bool {
+        line.range(of: #"(?i)^(?:total|итого|всего|обороты|остаток)\b"#, options: .regularExpression) != nil
     }
 
     // MARK: - Column-wise fallback
@@ -173,13 +222,8 @@ nonisolated final class KaspiPDFParser {
             .filter { !$0.isEmpty }
             .filter { !isGarbageLine($0) }
 
-        var details = splitDetails(detailLines, expectedCount: dates.count)
-        if details.count < dates.count {
-            details += Array(repeating: "—", count: dates.count - details.count)
-        }
-        if details.count > dates.count {
-            details = Array(details.prefix(dates.count))
-        }
+        let details = splitDetails(detailLines, expectedCount: dates.count)
+        guard details.count == dates.count else { return [] }
 
         var result: [Transaction] = []
         for idx in 0..<dates.count {
@@ -227,7 +271,8 @@ nonisolated final class KaspiPDFParser {
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "₸", with: "")
 
-        guard let absAmount = parseMoney(amountDigits) else { return nil }
+        guard let absAmount = parseMoney(amountDigits), absAmount.isFinite, absAmount > 0,
+              absAmount <= Transaction.maximumAmount else { return nil }
         let amount = sign * absAmount
 
         let safeDetail = detail.isEmpty ? "—" : detail
@@ -280,6 +325,7 @@ nonisolated final class KaspiPDFParser {
     }
 
     private func isGarbageLine(_ line: String) -> Bool {
+        if isTransactionStart(line) { return false }
         let lower = line.lowercased()
         let snippets = [
             "date amount", "transaction details", "дата сумма", "күні сомасы",
@@ -306,6 +352,8 @@ nonisolated final class KaspiPDFParser {
     private func parseDate(_ s: String) -> Date? {
         let df = DateFormatter()
         df.locale = Locale(identifier: "ru_RU")
+        df.calendar = Calendar(identifier: .gregorian)
+        df.isLenient = false
         df.timeZone = .current
         let parts = s.split(separator: ".")
         if parts.count == 3, let yearPart = parts.last {

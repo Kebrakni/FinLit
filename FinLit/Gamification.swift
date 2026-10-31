@@ -125,7 +125,7 @@ final class GamificationManager {
     private let decoder = JSONDecoder()
     private var profile: GamificationProfile
 
-    private init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: profileKey),
            let value = try? decoder.decode(GamificationProfile.self, from: data) {
@@ -186,18 +186,20 @@ final class GamificationManager {
     }
 
     @discardableResult
-    func recordAIReview(correctionCount: Int, date: Date = Date()) -> Int {
-        guard correctionCount > 0 else { return 0 }
-        profile.correctedTransactionCount += correctionCount
+    func recordAIReview(correctionCount: Int, reviewedCount: Int? = nil, date: Date = Date()) -> Int {
+        let reviewed = max(reviewedCount ?? correctionCount, 0)
+        let corrected = max(correctionCount, 0)
+        guard reviewed > 0 || corrected > 0 else { return 0 }
+        profile.correctedTransactionCount += corrected
         appendEvent(
             id: "ai-review:\(UUID().uuidString)",
             kind: .reviewedOperations,
-            value: Double(correctionCount),
+            value: Double(reviewed),
             date: date
         )
         profile.activeWeekIDs.insert(Self.weekID(for: date))
         let xp = awardXP(
-            min(30, 10 + max(correctionCount - 1, 0) * 2),
+            min(30, 10 + min(max(reviewed - 1, 0), 10) * 2),
             eventID: "ai-review-day:\(Self.dayID(for: date))",
             saveAfter: false
         )
@@ -230,6 +232,7 @@ final class GamificationManager {
         goal: Goal,
         date: Date = Date()
     ) -> GamificationSnapshot {
+        settleEndedBudgets(transactions: transactions, date: date)
         ensureWeeklyMissions(transactions: transactions, goal: goal, date: date)
         updateMissionProgress(transactions: transactions, date: date)
         awardCompletedMissions()
@@ -272,6 +275,26 @@ final class GamificationManager {
 // MARK: - Mission calculations
 
 private extension GamificationManager {
+    func settleEndedBudgets(transactions: [Transaction], date: Date) {
+        guard let first = transactions.map(\.date).min(), let last = transactions.map(\.date).max() else { return }
+        profile.weeklyMissions = profile.weeklyMissions.map { mission in
+            guard mission.kind == .categoryBudget,
+                  let interval = Self.calendar.dateInterval(of: .weekOfYear, for: mission.createdAt),
+                  date >= interval.end,
+                  let lastDay = Self.calendar.date(byAdding: .day, value: -1, to: interval.end),
+                  Self.calendar.startOfDay(for: first) <= interval.start,
+                  Self.calendar.startOfDay(for: last) >= lastDay,
+                  let code = mission.categoryCode, let category = TxCategory(aiCode: code) else { return mission }
+            let spent = transactions.filter { interval.containsTransactionDate($0.date) && $0.category == category && $0.amount < 0 }
+                .reduce(0.0) { $0 + abs($1.amount) }
+            var settled = mission
+            settled.current = spent <= mission.target ? mission.target : 0
+            return settled
+        }
+        // Settle the old week's result before ensureWeeklyMissions replaces it.
+        awardCompletedMissions()
+    }
+
     func ensureWeeklyMissions(
         transactions: [Transaction],
         goal: Goal,
@@ -436,12 +459,15 @@ private extension GamificationManager {
         })
         let elapsed = min(
             7,
-            max(Self.calendar.dateComponents([.day], from: interval.start, to: date).day ?? 0, 0) + 1
+            max(Self.calendar.dateComponents([.day], from: interval.start, to: date).day ?? 0, 0)
         )
+        let firstCovered = transactions.map { Self.calendar.startOfDay(for: $0.date) }.min() ?? date
+        let lastCovered = transactions.map { Self.calendar.startOfDay(for: $0.date) }.max() ?? date
         return (0..<elapsed).reduce(0) { result, offset in
             guard let day = Self.calendar.date(byAdding: .day, value: offset, to: interval.start) else {
                 return result
             }
+            guard day >= firstCovered, day <= lastCovered else { return result }
             return result + (spendingDays.contains(Self.calendar.startOfDay(for: day)) ? 0 : 1)
         }
     }
@@ -694,17 +720,13 @@ extension GamificationManager {
         guard let interval = calendar.dateInterval(of: .weekOfYear, for: date) else {
             return 0
         }
-        let elapsedDays = min(
-            7,
-            max(calendar.dateComponents([.day], from: interval.start, to: date).day ?? 0, 0) + 1
-        )
-        return Double(elapsedDays) / 7
+        return min(max(date.timeIntervalSince(interval.start) / interval.duration, 0), 1)
     }
 
     fileprivate static func moneyText(_ amount: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
         return "\(formatter.string(from: NSNumber(value: amount)) ?? String(Int(amount))) ₸"
     }
 }

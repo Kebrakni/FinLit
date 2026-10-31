@@ -91,16 +91,13 @@ final class FinLitGradientView: UIView {
         configureGradient()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else { return }
-        updateColors()
-    }
-
     private func configureGradient() {
         gradientLayer.startPoint = CGPoint(x: 0, y: 0)
         gradientLayer.endPoint = CGPoint(x: 1, y: 1)
         updateColors()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: FinLitGradientView, _: UITraitCollection) in
+            view.updateColors()
+        }
     }
 
     private func updateColors() {

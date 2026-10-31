@@ -16,6 +16,7 @@ final class AnalyticsViewController: UIViewController,
     private var totalIncome:  Double = 0
     private var totalExpense: Double = 0
     private var netSavings:   Double = 0
+    private var isImporting = false
 
     // MARK: - UI
 
@@ -269,7 +270,7 @@ final class AnalyticsViewController: UIViewController,
             guard let self else { return }
 
             var categorizedTransactions = parsedTransactions
-            var aiWasUsed = false
+            var aiCategorizedCount = 0
 
             do {
                 await MainActor.run {
@@ -293,7 +294,7 @@ final class AnalyticsViewController: UIViewController,
                         Categorizer.finalCategory(for: transaction, aiCategory: categories[transaction.id])
                     )
                 }
-                aiWasUsed = !categories.isEmpty
+                aiCategorizedCount = categories.count
             } catch {
                 // Local categorization is deliberately kept as a safe fallback.
                 print("AI categorization failed: \(error.localizedDescription)")
@@ -315,7 +316,7 @@ final class AnalyticsViewController: UIViewController,
                 self?.finishImport(
                     transactions: categorizedTransactions,
                     fingerprint: fingerprint,
-                    aiWasUsed: aiWasUsed,
+                    aiCategorizedCount: aiCategorizedCount,
                     importPlan: importPlan
                 )
             }
@@ -325,7 +326,7 @@ final class AnalyticsViewController: UIViewController,
     private func finishImport(
         transactions: [Transaction],
         fingerprint: String,
-        aiWasUsed: Bool,
+        aiCategorizedCount: Int,
         importPlan: StatementImportPlan
     ) {
         progressOverlay.update(progress: 1, title: "Готово", detail: "Аналитика обновлена")
@@ -344,7 +345,10 @@ final class AnalyticsViewController: UIViewController,
         let sorted = transactions.sorted { $0.date < $1.date }
         let from = df.string(from: sorted.first!.date)
         let to = df.string(from: sorted.last!.date)
-        let mode = aiWasUsed ? "Категории назначены AI" : "Использованы локальные категории"
+        let mode: String
+        if aiCategorizedCount == 0 { mode = "Использованы локальные категории" }
+        else if aiCategorizedCount < transactions.count { mode = "AI проверил \(aiCategorizedCount) из \(transactions.count) операций; остальные обработаны локально" }
+        else { mode = "Категории проверены AI" }
 
         var message = "Добавлено \(transactions.count) транзакций (\(from) – \(to))\n\(mode)"
         if importPlan.hasOverlap {
@@ -359,7 +363,10 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func setImporting(_ importing: Bool) {
+        isImporting = importing
         importButton.isEnabled = !importing
+        resetButton.isEnabled = !importing
+        navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = !importing }
         importButton.alpha = importing ? 0.65 : 1
         importButton.configuration?.title = importing ? "Анализируем выписку…" : "Добавить выписку"
         if importing {
@@ -390,6 +397,7 @@ final class AnalyticsViewController: UIViewController,
     // MARK: - Reset
 
     @objc private func didTapReset() {
+        guard !isImporting else { return }
         let alert = UIAlertController(
             title: "Сбросить все данные?",
             message: "Все загруженные выписки и история транзакций будут удалены. Это действие нельзя отменить.",
@@ -501,12 +509,12 @@ final class AnalyticsViewController: UIViewController,
     // MARK: - Formatting
 
     private func formatMoneyAbs(_ v: Double) -> String {
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
         return "\(f.string(from: NSNumber(value: abs(v))) ?? "0") ₸"
     }
 
     private func formatMoneyNet(_ v: Double) -> String {
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
         return "\(v < 0 ? "-" : "+")\(f.string(from: NSNumber(value: abs(v))) ?? "0") ₸"
     }
 

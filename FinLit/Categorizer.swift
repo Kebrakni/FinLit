@@ -20,14 +20,16 @@ nonisolated final class Categorizer {
         if containsAny(text, ["foreign exchange difference", "курсовая разница"]) {
             return Evidence(category: .other, reason: "Курсовая корректировка, а не покупка")
         }
-        if containsAny(text, ["kaspi deposit", "пополнение депозита", "депозит", "from my current account kaspi pay", "at kaspi atm", "in the kaspi terminal"]) {
+        if matches(bankType, #"^(withdrawals|снятие)\b"#) {
+            return Evidence(category: .cashWithdrawals, reason: "Банк указал снятие наличных")
+        }
+        let atmDeposit = matches(bankType, #"^(replenishment|пополнение)\b"#)
+            && containsAny(text, ["at kaspi atm", "in the kaspi terminal"])
+        if atmDeposit || containsAny(text, ["kaspi deposit", "пополнение депозита", "депозит", "from my current account kaspi pay"]) {
             return Evidence(category: .internalTransfers, reason: "Перемещение денег между собственными счетами или внесение наличных")
         }
         if containsAny(text, ["kaspi red", "kaspi credit"]) {
             return Evidence(category: .loans, reason: "Платёж Kaspi Red/Credit")
-        }
-        if matches(bankType, #"^(withdrawals|снятие)\b"#) {
-            return Evidence(category: .cashWithdrawals, reason: "Банк указал снятие наличных")
         }
         if matches(bankType, #"^(transfers|replenishment|перевод|пополнение)\b"#) {
             return Evidence(category: .transfers, reason: "Банк указал перевод или пополнение")
@@ -61,9 +63,8 @@ nonisolated final class Categorizer {
         if let evidence = evidence(merchant: merchant, details: details) { return evidence.category }
 
         // 2) Taxes, fines, government fees
-        if containsAny(text, [
-            "штраф", "налог", "tax", "fine", "penalty", "фискал"
-        ]) {
+        if containsAny(text, ["штраф", "налог", "фискал"])
+            || matches(text, #"(?:^|[^\p{L}\p{N}])(?:tax|taxes|fine|fines|penalty|penalties)(?=$|[^\p{L}\p{N}])"#) {
             return .taxes
         }
 

@@ -7,64 +7,6 @@ import FirebaseFirestore
 
 // MARK: - Model
 
-struct BattleParticipant: Codable {
-    var id: String = UUID().uuidString
-    var name: String
-    var savedAmount: Double
-    var targetAmount: Double
-    var joinedAt: Date
-
-    var progress: Double {
-        guard targetAmount > 0 else { return 0 }
-        return min(max(savedAmount / targetAmount, 0), 1.0)
-    }
-}
-
-// MARK: - FirebaseBattleRoom (Firestore model)
-
-struct FirebaseBattleRoom {
-    let id: String               // documentID = 6-символьный код
-    let hostId: String
-    let goalAmount: Double
-    var members: [[String: Any]] // [{uid, name, saved, target, updatedAt}]
-
-    static func fromDict(_ id: String, _ d: [String: Any]) -> FirebaseBattleRoom? {
-        guard let host = d["hostId"] as? String,
-              let goal = number(d["goalAmount"]),
-              let members = d["members"] as? [[String: Any]] else { return nil }
-        return FirebaseBattleRoom(id: id, hostId: host, goalAmount: goal, members: members)
-    }
-
-    func toParticipants() -> [BattleParticipant] {
-        members.compactMap { m in
-            guard let uid  = m["uid"]   as? String,
-                  let name = m["name"]  as? String,
-                  let saved = Self.number(m["saved"])
-            else { return nil }
-            // Older rooms did not store personal targets. Their room goal is a
-            // safe fallback until each member opens the updated app.
-            let personalTarget = Self.number(m["target"]) ?? goalAmount
-            return BattleParticipant(
-                id: uid,
-                name: name,
-                savedAmount: saved,
-                targetAmount: max(personalTarget, 1),
-                joinedAt: Date()
-            )
-        }.sorted {
-            if abs($0.progress - $1.progress) > 0.0001 {
-                return $0.progress > $1.progress
-            }
-            return $0.savedAmount > $1.savedAmount
-        }
-    }
-
-    private static func number(_ value: Any?) -> Double? {
-        if let value = value as? Double { return value }
-        if let value = value as? NSNumber { return value.doubleValue }
-        return nil
-    }
-}
 
 // MARK: - BattleCell
 
@@ -217,7 +159,7 @@ final class BattleCell: UITableViewCell {
         avatarView.backgroundColor = colors[(rank - 1) % colors.count]
 
         let isNeg = participant.savedAmount < 0
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
         let pct = participant.progress * 100
         amountLabel.text = String(format: "%.0f%%", pct)
         amountLabel.textColor = isMe ? FinLitTheme.accent : (isNeg ? .systemRed : .systemGreen)
@@ -281,6 +223,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private var firestoreListener: ListenerRegistration?
     private lazy var db = Firestore.firestore()
+    private lazy var roomStore = BattleRoomStore(db: db)
+    private var isLeavingRoom = false
 
     // MARK: UI
 
@@ -505,7 +449,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             title: "Своя команда",
             detail: "У каждого своя цель. В рейтинге вы сравниваете прогресс к ней — в процентах.",
             symbol: "trophy.fill", action: "Создать комнату", fieldTitle: "Ваша цель в битве · ₸",
-            placeholder: "350 000", value: String(format: "%.0f", AppStorage.shared.loadGoal().targetAmount), amount: true
+            placeholder: "350 000", value: String(format: "%.2f", AppStorage.shared.loadGoal().targetAmount).replacingOccurrences(of: ".00", with: ""), amount: true
         )
         sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
@@ -518,28 +462,12 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             sheet.view.endEditing(true)
 
             let roomId = self.makeRoomCode()
-            let saved = AppStorage.shared.loadCombinedSavings()
-
-            let data: [String: Any] = [
-                "hostId": self.myUid,
-                "goalAmount": goal,
-                "createdAt": FieldValue.serverTimestamp(),
-                "members": [
-                    [
-                        "uid": self.myUid,
-                        "name": self.myName,
-                        "saved": saved,
-                        "target": goal,
-                        "updatedAt": Timestamp(date: Date())
-                    ]
-                ]
-            ]
-
-            self.db.collection("battleRooms").document(roomId).setData(data) { error in
+            self.roomStore.enter(code: roomId, member: self.memberPayload(target: goal), creating: true, previousCode: self.currentRoomId) { error in
                 if let error {
                     sheet.setLoading(false)
                     sheet.showError(error.localizedDescription); return
                 }
+                self.rememberBattleTarget(goal, code: roomId)
                 self.currentRoomId = roomId
                 self.subscribeToRoom(roomId)
                 self.updateActionButton()
@@ -601,54 +529,16 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             sheet.setLoading(true)
             sheet.view.endEditing(true)
 
-            let ref = self.db.collection("battleRooms").document(code)
-            ref.getDocument { snapshot, error in
+            self.roomStore.enter(code: code, member: self.memberPayload(target: self.battleTarget(for: code)), creating: false, previousCode: self.currentRoomId) { error in
                 if let error {
                     sheet.setLoading(false)
                     sheet.showError(error.localizedDescription); return
                 }
-                guard let data = snapshot?.data() else {
-                    sheet.setLoading(false)
-                    sheet.showError("Комната с кодом «\(code)» не найдена. Проверьте код."); return
-                }
-
-                // Проверяем не в ней ли уже
-                var members = data["members"] as? [[String: Any]] ?? []
-                let alreadyIn = members.contains { $0["uid"] as? String == self.myUid }
-
-                let personalGoal = AppStorage.shared.loadGoal()
-                let saved = AppStorage.shared.loadCombinedSavings()
-                let personalTarget = personalGoal.targetAmount
-
-                if alreadyIn {
-                    // просто обновить сумму
-                    for i in members.indices where members[i]["uid"] as? String == self.myUid {
-                        members[i]["saved"] = saved
-                        members[i]["target"] = personalTarget
-                        members[i]["updatedAt"] = Timestamp(date: Date())
-                    }
-                } else {
-                    members.append([
-                        "uid": self.myUid,
-                        "name": self.myName,
-                        "saved": saved,
-                        "target": personalTarget,
-                        "updatedAt": Timestamp(date: Date())
-                    ])
-                }
-
-                ref.updateData(["members": members]) { error in
-                    if let error {
-                        sheet.setLoading(false)
-                        sheet.showError(error.localizedDescription); return
-                    }
-                    self.currentRoomId = code
-                    self.subscribeToRoom(code)
-                    self.updateActionButton()
-                    // Запланировать еженедельные напоминания
-                    BattleNotificationManager.shared.requestPermissionAndSchedule()
-                    sheet.finish { self.showBanner("Ты в комнате \(code)!") }
-                }
+                self.currentRoomId = code
+                self.subscribeToRoom(code)
+                self.updateActionButton()
+                BattleNotificationManager.shared.requestPermissionAndSchedule()
+                sheet.finish { self.showBanner("Ты в комнате \(code)!") }
             }
         }
         present(sheet, animated: true)
@@ -699,36 +589,17 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - Push my amount to Firebase
 
     private func pushMyAmountIfNeeded() {
+        guard !isLeavingRoom else { return }
         guard let roomId = currentRoomId else {
             // Нет Firebase комнаты — обновляем локально
             loadLocalFallback()
             return
         }
-        let personalGoal = AppStorage.shared.loadGoal()
         let saved = AppStorage.shared.loadCombinedSavings()
-        let personalTarget = personalGoal.targetAmount
-        let ref = db.collection("battleRooms").document(roomId)
-
-        ref.getDocument { [weak self] snapshot, _ in
-            guard let self, var members = snapshot?.data()?["members"] as? [[String: Any]] else { return }
-
-            var found = false
-            for i in members.indices where members[i]["uid"] as? String == self.myUid {
-                members[i]["saved"] = saved
-                members[i]["target"] = personalTarget
-                members[i]["updatedAt"] = Timestamp(date: Date())
-                found = true
-            }
-            if !found {
-                members.append([
-                    "uid": self.myUid,
-                    "name": self.myName,
-                    "saved": saved,
-                    "target": personalTarget,
-                    "updatedAt": Timestamp(date: Date()),
-                ])
-            }
-            ref.updateData(["members": members])
+        let personalTarget = battleTarget(for: roomId)
+        roomStore.update(code: roomId, member: memberPayload(target: personalTarget)) { [weak self] error in
+            guard let self, self.currentRoomId == roomId, !self.isLeavingRoom, let error else { return }
+            self.showBanner("Не удалось обновить счёт: \(error.localizedDescription)")
         }
 
         updateMyCard(net: saved, target: personalTarget)
@@ -737,26 +608,38 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - Leave Room
 
     private func leaveRoom() {
-        guard let roomId = currentRoomId else { return }
-        let ref = db.collection("battleRooms").document(roomId)
-
-        ref.getDocument { [weak self] snapshot, _ in
-            guard let self, var members = snapshot?.data()?["members"] as? [[String: Any]] else { return }
-            members.removeAll { $0["uid"] as? String == self.myUid }
-            ref.updateData(["members": members]) { _ in
-                self.firestoreListener?.remove()
-                self.currentRoomId = nil
-                self.sorted = []
-                // Отменить уведомления если вышел из всех комнат
-                BattleNotificationManager.shared.cancelAllReminders()
-                DispatchQueue.main.async {
-                    self.tableView.reloadData()
-                    self.updateActionButton()
-                    self.loadLocalFallback()
-                    self.showBanner("Ты покинул комнату")
-                }
-            }
+        guard let roomId = currentRoomId, !isLeavingRoom else { return }
+        isLeavingRoom = true
+        roomStore.leave(code: roomId, uid: myUid) { [weak self] error in
+            guard let self else { return }
+            self.isLeavingRoom = false
+            if let error { self.showAlert("Не удалось выйти", error.localizedDescription); return }
+            guard self.currentRoomId == roomId else { return }
+            self.firestoreListener?.remove()
+            self.currentRoomId = nil
+            self.sorted = []
+            BattleNotificationManager.shared.cancelAllReminders()
+            self.tableView.reloadData()
+            self.updateActionButton()
+            self.loadLocalFallback()
+            self.showBanner("Ты покинул комнату")
         }
+    }
+
+    private func memberPayload(target: Double) -> [String: Any] {
+        ["uid": myUid, "name": myName, "saved": AppStorage.shared.loadCombinedSavings(),
+         "target": target, "updatedAt": Timestamp(date: Date())]
+    }
+
+    private func battleTarget(for code: String) -> Double {
+        let saved = UserDefaults.standard.double(forKey: "battle_target_\(code)")
+        return saved.isFinite && saved > 0 ? saved : AppStorage.shared.loadGoal().targetAmount
+    }
+
+    private func rememberBattleTarget(_ value: Double, code: String) {
+        let key = "battle_target_\(code)"
+        if abs(value - AppStorage.shared.loadGoal().targetAmount) > 0.001 { UserDefaults.standard.set(value, forKey: key) }
+        else { UserDefaults.standard.removeObject(forKey: key) }
     }
 
     // MARK: - Local fallback (как было раньше)
@@ -799,7 +682,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     // MARK: - UI Helpers
 
     private func updateMyCard(net: Double, target: Double? = nil) {
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
         let isNeg  = net < 0
         let personalTarget = max(target ?? AppStorage.shared.loadGoal().targetAmount, 1)
         let progress = min(max(net / personalTarget, 0), 1)

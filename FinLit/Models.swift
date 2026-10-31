@@ -1,5 +1,9 @@
 import Foundation
 
+extension DateInterval {
+    nonisolated func containsTransactionDate(_ date: Date) -> Bool { date >= start && date < end }
+}
+
 struct Goal: Codable {
     var title: String
     var targetAmount: Double
@@ -7,8 +11,8 @@ struct Goal: Codable {
     var deadline: Date?
 
     var progress: Double {
-        guard targetAmount > 0 else { return 0 }
-        return min(savedAmount / targetAmount, 1.0)
+        guard targetAmount.isFinite, savedAmount.isFinite, targetAmount > 0 else { return 0 }
+        return min(max(savedAmount / targetAmount, 0), 1.0)
     }
 }
 
@@ -128,12 +132,19 @@ nonisolated enum TxCategory: String, CaseIterable, Hashable, Codable, Sendable {
 }
 
 nonisolated struct Transaction: Codable, Identifiable, Sendable {
+    static let maximumAmount = 1_000_000_000_000.0
     let id: String
     let date: Date
     let amount: Double
     let merchant: String
     let details: String
     let category: TxCategory
+
+    var isValid: Bool {
+        !id.isEmpty && amount.isFinite && amount != 0 && abs(amount) <= Self.maximumAmount
+            && date.timeIntervalSince1970.isFinite
+            && !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     init(id: String = UUID().uuidString, date: Date, amount: Double,
          merchant: String, details: String, category: TxCategory) {

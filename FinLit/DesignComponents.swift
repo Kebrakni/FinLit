@@ -6,7 +6,7 @@ enum FinLitDisplay {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "ru_KZ")
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
         return "\(formatter.string(from: NSNumber(value: value)) ?? "0") ₸"
     }
 
@@ -258,7 +258,7 @@ final class GoalEditorSheet: FinLitFormSheet {
         self.goal = goal
         self.onSave = onSave
         nameField = FinLitFormField(title: "На что копим", placeholder: "Например, путешествие", value: goal.title)
-        amountField = FinLitFormField(title: "Стоимость цели · ₸", placeholder: "350 000", value: String(format: "%.0f", goal.targetAmount), amount: true)
+        amountField = FinLitFormField(title: "Стоимость цели · ₸", placeholder: "350 000", value: String(format: "%.2f", goal.targetAmount).replacingOccurrences(of: ".00", with: ""), amount: true)
         super.init(title: "Ближе к мечте", detail: "Назовите цель и сумму. Каждый шаг к ней будет виден на главном экране.", symbol: "target", action: "Сохранить цель")
     }
 
@@ -391,6 +391,9 @@ final class SavingsContributionSheet: FinLitFormSheet {
     override func submit() {
         guard let amount = FinLitDisplay.amount(amountField.input.text) else {
             showError("Введите сумму накопления больше нуля."); return
+        }
+        guard goal.savedAmount + amount <= Transaction.maximumAmount else {
+            showError("Общая сумма накоплений слишком велика. Проверьте введённую сумму."); return
         }
         onSave(amount)
         finish()

@@ -32,6 +32,8 @@ struct CategorizationChecks {
         precondition(Categorizer.categorize(merchant: "UNKNOWN 12345", details: "Purchases UNKNOWN 12345") == .other)
         precondition(Categorizer.categorize(merchant: "DODOPIZZA.KZ", details: "Purchases DODOPIZZA.KZ") == .cafes)
         precondition(Categorizer.categorize(merchant: "Example SUBCR", details: "Purchases Example SUBCR") == .subscriptions)
+        precondition(Categorizer.categorize(merchant: "Taxi", details: "Purchases Taxi") == .transport, "tax must not match taxi")
+        precondition(Categorizer.categorize(merchant: "Fineline", details: "Purchases Fineline") != .taxes, "fine must not match arbitrary retailer names")
 
         let defaults = MemoryDefaults()
         LearnedCategoryRules.learn(merchant: "Dodo Pizza", category: .shopping, source: .aiSuggestion, defaults: defaults)

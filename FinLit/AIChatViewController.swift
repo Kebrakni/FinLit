@@ -388,8 +388,9 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
                     return .init(id: row.id, category: category, amount: row.amount, reason: "Повторная AI-проверка категории")
                 }
                 let coverage = "Проверено \(categories.count) из \(selected.count) операций."
+                GamificationManager.shared.recordAIReview(correctionCount: 0, reviewedCount: categories.count)
                 self.addMessage(changes.isEmpty ? "\(coverage) По проверенным операциям AI не предложил менять категории." : "\(coverage) Предложений изменить категорию: \(changes.count). Проверьте их перед применением.")
-                self.offer(changes)
+                self.offer(changes, alreadyReviewed: true)
             } catch {
                 guard let self, self.requestID == token, !Task.isCancelled else { return }
                 self.endRequest()
@@ -439,7 +440,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         ])
     }
 
-    private func offer(_ proposed: [OpenRouterCategorizer.ReviewChange]) {
+    private func offer(_ proposed: [OpenRouterCategorizer.ReviewChange], alreadyReviewed: Bool = false) {
         let byID = Dictionary(transactions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
         let changes = proposed.filter { change in
@@ -470,7 +471,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
             let corrections = Dictionary(changes.map { ($0.id, (amount: $0.amount, category: $0.category)) }, uniquingKeysWith: { first, _ in first })
             self.onApply(corrections)
             self.transactions = AppStorage.shared.loadAllTransactions()
-            GamificationManager.shared.recordAIReview(correctionCount: changes.count)
+            GamificationManager.shared.recordAIReview(correctionCount: changes.count, reviewedCount: alreadyReviewed ? 0 : changes.count)
             self.addMessage("Изменения применены: \(changes.count). Аналитика обновлена.")
         })
         options.append(ChatOption(title: "Оставить как есть", symbol: "xmark") { [weak self] in

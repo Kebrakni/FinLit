@@ -26,7 +26,7 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
     private lazy var numberFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
+        f.maximumFractionDigits = 2
         return f
     }()
 
@@ -75,11 +75,11 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
         let transaction = transactions[indexPath.row]
         let editor = TransactionEditorViewController(transaction: transaction) { [weak self] updated in
             guard let self else { return }
-            if updated.category == self.category {
-                self.transactions[indexPath.row] = updated
-            } else {
-                self.transactions.remove(at: indexPath.row)
-            }
+            guard let index = self.transactions.firstIndex(where: { $0.id == updated.id }) else { return }
+            let original = self.transactions[index]
+            if updated.category == self.category, (updated.amount > 0) == (original.amount > 0) {
+                self.transactions[index] = updated
+            } else { self.transactions.remove(at: index) }
             self.tableView.reloadData()
         }
         let navigation = UINavigationController(rootViewController: editor)

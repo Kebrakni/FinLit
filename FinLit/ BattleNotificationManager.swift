@@ -68,7 +68,7 @@ final class BattleNotificationManager {
     func notifyOpponentUpdated(opponentName: String, newAmount: Double) {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
+        f.maximumFractionDigits = 2
         let amountStr = f.string(from: NSNumber(value: abs(newAmount))) ?? "0"
         let sign = newAmount >= 0 ? "+" : "-"
 

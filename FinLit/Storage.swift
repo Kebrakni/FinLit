@@ -18,7 +18,8 @@ struct StatementImportPlan {
 
 final class AppStorage {
     static let shared = AppStorage()
-    private init() {}
+    private let defaults: UserDefaults
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     private let goalKey             = "goal_key_v1"
     private let challengesKey       = "challenges_key_v1"
@@ -33,14 +34,18 @@ final class AppStorage {
     // MARK: - Goal
 
     func loadGoal() -> Goal {
-        if let data = UserDefaults.standard.data(forKey: goalKey),
+        if let data = defaults.data(forKey: goalKey),
            let goal = try? JSONDecoder().decode(Goal.self, from: data) { return goal }
         return Goal(title: "New Phone", targetAmount: 350_000, savedAmount: 0, deadline: nil)
     }
 
     func saveGoal(_ goal: Goal) {
+        guard goal.targetAmount.isFinite, goal.targetAmount > 0, goal.targetAmount <= Transaction.maximumAmount,
+              goal.savedAmount.isFinite, goal.savedAmount >= 0, goal.savedAmount <= Transaction.maximumAmount,
+              !goal.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if let data = try? JSONEncoder().encode(goal) {
-            UserDefaults.standard.set(data, forKey: goalKey)
+            defaults.set(data, forKey: goalKey)
+            NotificationCenter.default.post(name: .pdfNetSavingsUpdated, object: nil)
         }
     }
 
@@ -60,35 +65,35 @@ final class AppStorage {
     // MARK: - Challenges
 
     func loadChallenges() -> [Challenge] {
-        if let data = UserDefaults.standard.data(forKey: challengesKey),
+        if let data = defaults.data(forKey: challengesKey),
            let items = try? JSONDecoder().decode([Challenge].self, from: data) { return items }
         return [Challenge(title: "Save 10k this week", type: .weeklySaving, createdAt: Date(), participants: ["You"])]
     }
 
     func saveChallenges(_ challenges: [Challenge]) {
         if let data = try? JSONEncoder().encode(challenges) {
-            UserDefaults.standard.set(data, forKey: challengesKey)
+            defaults.set(data, forKey: challengesKey)
         }
     }
 
     // MARK: - Battle Participants
 
     func loadBattleParticipants() -> [BattleParticipant] {
-        if let data = UserDefaults.standard.data(forKey: battleKey),
+        if let data = defaults.data(forKey: battleKey),
            let items = try? JSONDecoder().decode([BattleParticipant].self, from: data) { return items }
         return []
     }
 
     func saveBattleParticipants(_ items: [BattleParticipant]) {
         if let data = try? JSONEncoder().encode(items) {
-            UserDefaults.standard.set(data, forKey: battleKey)
+            defaults.set(data, forKey: battleKey)
         }
     }
 
     // MARK: - AI Chat
 
     func loadAIChatMessages() -> [AIChatMessage] {
-        guard let data = UserDefaults.standard.data(forKey: aiChatMessagesKey),
+        guard let data = defaults.data(forKey: aiChatMessagesKey),
               let messages = try? JSONDecoder().decode([AIChatMessage].self, from: data) else {
             return []
         }
@@ -99,19 +104,19 @@ final class AppStorage {
         // Bound local history so it cannot grow indefinitely.
         let recent = Array(messages.suffix(200))
         if let data = try? JSONEncoder().encode(recent) {
-            UserDefaults.standard.set(data, forKey: aiChatMessagesKey)
+            defaults.set(data, forKey: aiChatMessagesKey)
         }
     }
 
     func clearAIChatMessages() {
-        UserDefaults.standard.removeObject(forKey: aiChatMessagesKey)
+        defaults.removeObject(forKey: aiChatMessagesKey)
     }
 
     // MARK: - Accumulated Transactions
 
     func loadAllTransactions() -> [Transaction] {
         if let cachedTransactions { return cachedTransactions }
-        guard let data = UserDefaults.standard.data(forKey: allTransactionsKey),
+        guard let data = defaults.data(forKey: allTransactionsKey),
               let items = try? JSONDecoder().decode([Transaction].self, from: data) else { return [] }
 
         // Categories are final after the AI review and must survive relaunches.
@@ -124,13 +129,13 @@ final class AppStorage {
     @discardableResult
     func mergeTransactions(_ newTxs: [Transaction]) -> [Transaction] {
         var existing = loadAllTransactions()
-        let existingIDs = Set(existing.map { $0.id })
-        let toAdd = newTxs.filter { !existingIDs.contains($0.id) }
+        var existingIDs = Set(existing.map { $0.id })
+        let toAdd = newTxs.filter { $0.isValid && existingIDs.insert($0.id).inserted }
         existing.append(contentsOf: toAdd)
         existing.sort { $0.date > $1.date }
         cachedTransactions = existing
         if let data = try? JSONEncoder().encode(existing) {
-            UserDefaults.standard.set(data, forKey: allTransactionsKey)
+            defaults.set(data, forKey: allTransactionsKey)
         }
         return existing
     }
@@ -143,6 +148,7 @@ final class AppStorage {
         learnCategory: Bool = true
     ) -> [Transaction] {
         var transactions = loadAllTransactions()
+        guard updatedTransaction.isValid else { return transactions }
         guard let index = transactions.firstIndex(where: { $0.id == updatedTransaction.id }) else {
             return transactions
         }
@@ -151,14 +157,15 @@ final class AppStorage {
         transactions.sort { $0.date > $1.date }
         cachedTransactions = transactions
         if let data = try? JSONEncoder().encode(transactions) {
-            UserDefaults.standard.set(data, forKey: allTransactionsKey)
+            defaults.set(data, forKey: allTransactionsKey)
         }
         if learnCategory,
            original.category != updatedTransaction.category
             || original.merchant != updatedTransaction.merchant {
             LearnedCategoryRules.learn(
                 merchant: updatedTransaction.merchant,
-                category: updatedTransaction.category
+                category: updatedTransaction.category,
+                defaults: defaults
             )
         }
         recalculateAndSaveNet()
@@ -169,12 +176,14 @@ final class AppStorage {
     @discardableResult
     func applyTransactionCorrections(_ corrections: [String: (amount: Double, category: TxCategory)]) -> [Transaction] {
         let updated = loadAllTransactions().map { transaction in
-            guard let correction = corrections[transaction.id] else { return transaction }
+            guard let correction = corrections[transaction.id], correction.amount.isFinite,
+                  correction.amount != 0, abs(correction.amount) <= Transaction.maximumAmount else { return transaction }
             if correction.category != transaction.category {
                 LearnedCategoryRules.learn(
                     merchant: transaction.merchant,
                     category: correction.category,
-                    source: .aiSuggestion
+                    source: .aiSuggestion,
+                    defaults: defaults
                 )
             }
             return transaction.withCorrections(
@@ -185,7 +194,7 @@ final class AppStorage {
 
         cachedTransactions = updated
         if let data = try? JSONEncoder().encode(updated) {
-            UserDefaults.standard.set(data, forKey: allTransactionsKey)
+            defaults.set(data, forKey: allTransactionsKey)
         }
         recalculateAndSaveNet()
         NotificationCenter.default.post(name: .transactionsUpdated, object: nil)
@@ -195,10 +204,10 @@ final class AppStorage {
     /// Сброс всех данных
     func clearAllTransactions() {
         cachedTransactions = []
-        UserDefaults.standard.removeObject(forKey: allTransactionsKey)
-        UserDefaults.standard.removeObject(forKey: fingerprintsKey)
-        UserDefaults.standard.removeObject(forKey: importedDaysKey)
-        UserDefaults.standard.set(0.0, forKey: netSavingsKey)
+        defaults.removeObject(forKey: allTransactionsKey)
+        defaults.removeObject(forKey: fingerprintsKey)
+        defaults.removeObject(forKey: importedDaysKey)
+        defaults.set(0.0, forKey: netSavingsKey)
         var participants = loadBattleParticipants()
         if let idx = participants.firstIndex(where: { $0.id == "me_local" }) {
             let goal = loadGoal()
@@ -277,12 +286,12 @@ final class AppStorage {
     func markAsImported(_ fingerprint: String, transactions: [Transaction]) {
         var set = loadFingerprints()
         set.insert(fingerprint)
-        UserDefaults.standard.set(Array(set), forKey: fingerprintsKey)
+        defaults.set(Array(set), forKey: fingerprintsKey)
 
         guard let range = statementDateRange(for: transactions) else { return }
         var importedDays = loadImportedDayIDsIncludingLegacyFingerprints()
         importedDays.formUnion(dates(in: range).map(dayID(for:)))
-        UserDefaults.standard.set(Array(importedDays).sorted(), forKey: importedDaysKey)
+        defaults.set(Array(importedDays).sorted(), forKey: importedDaysKey)
     }
 
     /// Commits the exact set of new calendar days from a previously prepared
@@ -290,20 +299,20 @@ final class AppStorage {
     func markAsImported(_ fingerprint: String, plan: StatementImportPlan) {
         var fingerprints = loadFingerprints()
         fingerprints.insert(fingerprint)
-        UserDefaults.standard.set(Array(fingerprints), forKey: fingerprintsKey)
+        defaults.set(Array(fingerprints), forKey: fingerprintsKey)
 
         var importedDays = loadImportedDayIDsIncludingLegacyFingerprints()
         importedDays.formUnion(plan.newDays.map(dayID(for:)))
-        UserDefaults.standard.set(Array(importedDays).sorted(), forKey: importedDaysKey)
+        defaults.set(Array(importedDays).sorted(), forKey: importedDaysKey)
     }
 
     private func loadFingerprints() -> Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: fingerprintsKey) ?? [])
+        Set(defaults.stringArray(forKey: fingerprintsKey) ?? [])
     }
 
     private func loadImportedDayIDsIncludingLegacyFingerprints() -> Set<String> {
         var importedDays = Set(
-            UserDefaults.standard.stringArray(forKey: importedDaysKey) ?? []
+            defaults.stringArray(forKey: importedDaysKey) ?? []
         )
         let legacyFormatter = DateFormatter()
         legacyFormatter.calendar = statementCalendar
@@ -371,7 +380,7 @@ final class AppStorage {
         let expense = all.filter { $0.amount < 0 }.reduce(0.0) { $0 + (-$1.amount) }
         let net = income - expense
 
-        UserDefaults.standard.set(net, forKey: netSavingsKey)
+        defaults.set(net, forKey: netSavingsKey)
 
         // Battle counts both sources: positive statement balance and money
         // entered manually (for example cash kept outside the bank statement).
@@ -394,7 +403,7 @@ final class AppStorage {
     }
 
     func loadPDFNetSavings() -> Double {
-        UserDefaults.standard.double(forKey: netSavingsKey)
+        defaults.double(forKey: netSavingsKey)
     }
 }
 

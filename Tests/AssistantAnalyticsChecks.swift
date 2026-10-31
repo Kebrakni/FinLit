@@ -55,6 +55,20 @@ struct AssistantAnalyticsChecks {
         precondition(ambiguous.insight == nil && ambiguous.reply.contains("несколько"))
         let capability = try await OpenRouterCategorizer.shared.review(message: "Что ты умеешь?", history: [], transactions: [])
         precondition(capability.reply.contains("Кнопки"))
+        let store = try await OpenRouterCategorizer.shared.review(message: "Сколько я потратил в Starbucks?", history: [], transactions: rows + [row("Starbucks", -300)])
+        precondition(store.insight?.amount == 300, "A merchant query must not return all expenses")
+        let absent = try await OpenRouterCategorizer.shared.review(message: "Сколько я перевёл Незнакомому всего?", history: [], transactions: rows)
+        precondition(absent.insight == nil, "Unknown people must not receive the total for all transfers")
+        let short = try await OpenRouterCategorizer.shared.review(message: "Сколько я перевёл Оле всего?", history: [], transactions: rows)
+        precondition(short.insight == nil)
+        let current = calendar.dateInterval(of: .month, for: Date())!
+        let previous = calendar.date(byAdding: .month, value: -1, to: current.start)!
+        let boundaryRows = [
+            Transaction(date: previous, amount: -11, merchant: "Человек Т.", details: "Transfers", category: .transfers),
+            Transaction(date: current.start, amount: -100, merchant: "Человек Т.", details: "Transfers", category: .transfers)
+        ]
+        let boundary = try await OpenRouterCategorizer.shared.review(message: "Сколько я перевёл Человеку за прошлый месяц?", history: [], transactions: boundaryRows)
+        precondition(boundary.insight?.amount == 11, "A month query must exclude next month's midnight")
 
         let start = Date()
         let annual = (0..<5000).map { index in row("Человек \(index % 30)", -Double(index % 100 + 1), index % 12 + 1) }

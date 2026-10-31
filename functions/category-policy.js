@@ -15,11 +15,12 @@ function categoryEvidence(transaction) {
   const text = `${transaction.merchant || ""} ${transaction.details || ""}`.toLowerCase();
   const type = String(transaction.details || "").trim().toLowerCase();
   if (/foreign exchange difference|курсовая разница/iu.test(text)) return { category: "other", reason: "Курсовая корректировка" };
-  if (/kaspi deposit|пополнение депозита|депозит|from my current account kaspi pay|at kaspi atm|in the kaspi terminal/iu.test(text)) {
+  if (/^(?:withdrawals|снятие)(?=$|[^\p{L}\p{N}])/u.test(type)) return { category: "cash_withdrawals", reason: "Банк указал снятие наличных" };
+  const atmDeposit = /^(?:replenishment|пополнение)(?=$|[^\p{L}\p{N}])/u.test(type) && /at kaspi atm|in the kaspi terminal/u.test(text);
+  if (atmDeposit || /kaspi deposit|пополнение депозита|депозит|from my current account kaspi pay/iu.test(text)) {
     return { category: "internal_transfers", reason: "Перемещение между своими счетами или внесение наличных" };
   }
   if (/kaspi red|kaspi credit/iu.test(text)) return { category: "loans", reason: "Платёж Kaspi Red/Credit" };
-  if (/^(?:withdrawals|снятие)(?=$|[^\p{L}\p{N}])/u.test(type)) return { category: "cash_withdrawals", reason: "Банк указал снятие наличных" };
   if (/^(?:transfers|replenishment|перевод|пополнение)(?=$|[^\p{L}\p{N}])/u.test(type)) {
     return { category: "transfers", reason: "Банк указал перевод или пополнение" };
   }

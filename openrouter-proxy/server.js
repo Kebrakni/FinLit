@@ -192,17 +192,23 @@ function validateTransactions(value) {
 
   const ids = new Set();
   return value.map((item) => {
-    if (!item || typeof item.id !== "string" || !item.id || ids.has(item.id)) {
+    if (!item || typeof item.id !== "string" || !item.id.trim() || item.id.length > 1024 || ids.has(item.id)) {
       const error = new Error("Invalid transaction id");
       error.statusCode = 400;
       error.publicMessage = "У операций должны быть уникальные id";
       throw error;
     }
     ids.add(item.id);
+    if (typeof item.amount !== "number" || !Number.isFinite(item.amount) || item.amount === 0 || Math.abs(item.amount) > 1_000_000_000_000) {
+      const error = new Error("Invalid transaction amount");
+      error.statusCode = 400;
+      error.publicMessage = "Сумма операции должна быть конечным ненулевым числом";
+      throw error;
+    }
     return {
-      id: item.id.slice(0, 200),
+      id: item.id,
       date: String(item.date || "").slice(0, 80),
-      amount: Number(item.amount) || 0,
+      amount: item.amount,
       merchant: String(item.merchant || "").slice(0, 500),
       details: String(item.details || "").slice(0, 1000)
     };

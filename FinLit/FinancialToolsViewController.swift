@@ -214,20 +214,23 @@ private final class TransactionSearchViewController: UIViewController,
         let calendar = Calendar.current
         let now = Date()
         let start: Date?
+        let end: Date?
         switch selectedPeriod {
-        case .all: start = nil
-        case .thirtyDays: start = calendar.date(byAdding: .day, value: -30, to: now)
-        case .thisMonth: start = calendar.dateInterval(of: .month, for: now)?.start
-        case .thisYear: start = calendar.dateInterval(of: .year, for: now)?.start
+        case .all: start = nil; end = nil
+        case .thirtyDays: start = calendar.date(byAdding: .day, value: -30, to: now); end = now
+        case .thisMonth: start = calendar.dateInterval(of: .month, for: now)?.start; end = calendar.dateInterval(of: .month, for: now)?.end
+        case .thisYear: start = calendar.dateInterval(of: .year, for: now)?.start; end = calendar.dateInterval(of: .year, for: now)?.end
         }
 
         filtered = all.filter { transaction in
             if let selectedCategory, transaction.category != selectedCategory { return false }
             if let start, transaction.date < start { return false }
+            if let end, transaction.date >= end { return false }
             guard !query.isEmpty else { return true }
-            let amount = String(format: "%.0f", abs(transaction.amount))
+            let amount = String(format: "%.2f", abs(transaction.amount))
             let text = "\(transaction.merchant) \(transaction.details) \(transaction.category.rawValue) \(amount)".lowercased()
-            return text.contains(query)
+            let amountQuery = query.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: ".")
+            return text.contains(query) || Double(amountQuery) != nil && amount.contains(amountQuery)
         }
         let expenses = filtered.filter { $0.amount < 0 }.reduce(0.0) { $0 + abs($1.amount) }
         resultLabel.text = "\(filtered.count) операций · расходы \(FinancialToolsFormat.money(expenses))"
@@ -615,8 +618,8 @@ private final class MonthComparisonViewController: UIViewController {
             return
         }
 
-        let currentRows = transactions.filter { currentInterval.contains($0.date) }
-        let previousRows = transactions.filter { previousInterval.contains($0.date) }
+        let currentRows = transactions.filter { currentInterval.containsTransactionDate($0.date) }
+        let previousRows = transactions.filter { previousInterval.containsTransactionDate($0.date) }
         let current = metrics(for: currentRows)
         let previous = metrics(for: previousRows)
 
@@ -1100,7 +1103,7 @@ private enum FinancialToolsFormat {
     static func money(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
         let text = formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
         return "\(text) ₸"
     }

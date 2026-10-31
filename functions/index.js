@@ -172,10 +172,10 @@ exports.openrouterProxy = onRequest(
           analyticsContext,
         ));
       } catch (error) {
-        const status = error.statusCode || 500;
+        const status = errorStatus(error);
         console.error(error);
         response.status(status).json({
-          error: error.publicMessage || "AI review failed",
+          error: error.publicMessage || timeoutMessage(error) || "AI review failed",
         });
       }
       return;
@@ -184,19 +184,15 @@ exports.openrouterProxy = onRequest(
     if (request.method === "POST" && request.path === "/api/missions") {
       try {
         const transactions = validateTransactions(request.body?.transactions);
-        const goal = {
-          title: String(request.body?.goal?.title || "Финансовая цель").slice(0, 200),
-          targetAmount: Math.max(Number(request.body?.goal?.targetAmount) || 0, 0),
-          savedAmount: Math.max(Number(request.body?.goal?.savedAmount) || 0, 0),
-        };
+        const goal = validateGoal(request.body?.goal);
         response.status(200).json({
           missions: await generateWeeklyMissions(transactions, goal),
         });
       } catch (error) {
-        const status = error.statusCode || 500;
+        const status = errorStatus(error);
         console.error(error);
         response.status(status).json({
-          error: error.publicMessage || "AI mission generation failed",
+          error: error.publicMessage || timeoutMessage(error) || "AI mission generation failed",
         });
       }
       return;
@@ -212,10 +208,10 @@ exports.openrouterProxy = onRequest(
       const categories = await categorizeTransactions(transactions);
       response.status(200).json({ categories });
     } catch (error) {
-      const status = error.statusCode || 500;
+      const status = errorStatus(error);
       console.error(error);
       response.status(status).json({
-        error: error.publicMessage || "AI categorization failed",
+        error: error.publicMessage || timeoutMessage(error) || "AI categorization failed",
       });
     }
   },
@@ -256,14 +252,15 @@ async function reviewTransactions(userMessage, transactions, history, analyticsC
     JSON.stringify(transactions),
   ].join("\n");
 
-  let parsed = await requestReviewFromOpenRouter(prompt, testerMode);
+  const signal = AbortSignal.timeout(80_000);
+  let parsed = await requestReviewFromOpenRouter(prompt, testerMode, signal);
   let reply = sanitizeReply(parsed.reply);
   if (isIncompleteReply(reply)) {
     parsed = await requestReviewFromOpenRouter([
       prompt,
       "ВАЖНО: предыдущая попытка ответа оборвалась или закончилась заголовком списка.",
       "Сформируй reply заново целиком. Если обещаешь перечисление — включи конкретные пункты в сам reply и заверши его точкой.",
-    ].join("\n"), testerMode);
+    ].join("\n"), testerMode, signal);
     reply = sanitizeReply(parsed.reply);
   }
 
@@ -316,6 +313,7 @@ async function generateWeeklyMissions(transactions, goal) {
 
   const upstreamResponse = await fetch(openRouterUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(80_000),
     headers: {
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
@@ -450,9 +448,10 @@ function fallbackWeeklyMissions(transactions, goal) {
   ];
 }
 
-async function requestReviewFromOpenRouter(prompt, testerMode) {
+async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSignal.timeout(80_000)) {
   const upstreamResponse = await fetch(openRouterUrl, {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
@@ -547,6 +546,7 @@ async function requestOpenRouterCategories(transactions) {
 
   const upstreamResponse = await fetch(openRouterUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(80_000),
     headers: {
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
@@ -604,17 +604,23 @@ function validateTransactions(value) {
 
   const ids = new Set();
   return value.map((item) => {
-    if (!item || typeof item.id !== "string" || !item.id || ids.has(item.id)) {
+    if (!item || typeof item.id !== "string" || !item.id.trim() || item.id.length > 1024 || ids.has(item.id)) {
       const error = new Error("Invalid transaction id");
       error.statusCode = 400;
       error.publicMessage = "У операций должны быть уникальные id";
       throw error;
     }
     ids.add(item.id);
+    if (typeof item.amount !== "number" || !Number.isFinite(item.amount) || item.amount === 0 || Math.abs(item.amount) > 1_000_000_000_000) {
+      const error = new Error("Invalid transaction amount");
+      error.statusCode = 400;
+      error.publicMessage = "Сумма операции должна быть конечным ненулевым числом";
+      throw error;
+    }
     return {
-      id: item.id.slice(0, 200),
+      id: item.id,
       date: String(item.date || "").slice(0, 80),
-      amount: Number(item.amount) || 0,
+      amount: item.amount,
       merchant: String(item.merchant || "").slice(0, 500),
       details: String(item.details || "").slice(0, 1000),
       manualCategory: categoryCodes.includes(item.manualCategory) ? item.manualCategory : null,
@@ -624,6 +630,19 @@ function validateTransactions(value) {
         : "other",
     };
   });
+}
+
+function validateGoal(goal) {
+  if (!goal || typeof goal.targetAmount !== "number" || !Number.isFinite(goal.targetAmount)
+      || goal.targetAmount <= 0 || goal.targetAmount > 1_000_000_000_000
+      || typeof goal.savedAmount !== "number" || !Number.isFinite(goal.savedAmount)
+      || goal.savedAmount < 0 || goal.savedAmount > 1_000_000_000_000) {
+    const error = new Error("Invalid goal");
+    error.statusCode = 400;
+    error.publicMessage = "Проверьте сумму цели и накоплений";
+    throw error;
+  }
+  return { title: String(goal.title || "Финансовая цель").slice(0, 200), targetAmount: goal.targetAmount, savedAmount: goal.savedAmount };
 }
 
 function parseModelJSON(value) {
@@ -647,3 +666,10 @@ function setCorsHeaders(response) {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Headers", "Content-Type");
 }
+
+function timeoutMessage(error) {
+  return ["TimeoutError", "AbortError"].includes(error?.name)
+    ? "AI не успел ответить. Попробуйте ещё раз или выберите меньший период проверки." : null;
+}
+
+function errorStatus(error) { return timeoutMessage(error) ? 504 : error.statusCode || 500; }

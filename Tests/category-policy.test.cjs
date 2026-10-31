@@ -28,7 +28,7 @@ test("The actual API route validates the model decision before returning categor
   ].includes(fixture.name));
   let upstreamPrompt = "";
   const context = {
-    exports: {}, console,
+    exports: {}, console, AbortSignal,
     require(name) {
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only-key" }) };

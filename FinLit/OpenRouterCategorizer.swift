@@ -108,7 +108,7 @@ final class OpenRouterCategorizer {
     private let session: URLSession
     private let decoder = JSONDecoder()
 
-    private init(session: URLSession = .shared) {
+    init(session: URLSession = .shared) {
         self.session = session
     }
 
@@ -137,6 +137,10 @@ final class OpenRouterCategorizer {
                 // A long annual statement should keep successful batches even if
                 // one free-model request is temporarily rate-limited.
                 lastError = error
+                if case APIError.server(let status, _) = error, [401, 403, 429].contains(status) || status >= 500 { break }
+                if error is DecodingError { break }
+                if let network = error as? URLError,
+                   [.notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost].contains(network.code) { break }
             }
             start = end
             progress?(start, transactions.count)
@@ -193,8 +197,7 @@ final class OpenRouterCategorizer {
             throw APIError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let serverMessage = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw APIError.server(serverMessage)
+            throw Self.serverError(data, status: httpResponse.statusCode)
         }
 
         let result = try decoder.decode(ReviewResponse.self, from: data)
@@ -242,8 +245,7 @@ final class OpenRouterCategorizer {
             throw APIError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let serverMessage = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw APIError.server(serverMessage)
+            throw Self.serverError(data, status: httpResponse.statusCode)
         }
         return try decoder.decode(MissionResponse.self, from: data).missions
     }
@@ -286,10 +288,27 @@ final class OpenRouterCategorizer {
         // Leave non-calendar or incomplete date expressions to clarification in the free-form chat.
         if ["недел", "сегодня", "вчера", "дней", "дня", "дней", "числа"].contains(where: lower.contains)
             || lower.range(of: #"\d{1,2}[./]\d{1,2}"#, options: .regularExpression) != nil { return nil }
+        let numbers = lower.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }
+        if numbers.contains(where: { $0.count != 4 || !$0.hasPrefix("20") }) { return nil }
         let periodRows = transactionsInRequestedPeriod(message, transactions: transactions)
-        let direction: AssistantAnalytics.Direction = ["мне", "получ", "кто", " от "].contains(where: lower.contains) ? .incoming : .outgoing
+        let incoming = ["мне", "получ", "кто", " от "].contains(where: lower.contains)
+        let outgoing = ["я перев", "я скин", "я отпра", "мои перев", "кому"].contains(where: lower.contains)
+        let direction: AssistantAnalytics.Direction = incoming ? .incoming : .outgoing
         let queryStems = meaningfulStems(in: message)
-        let transferIntent = ["перев", "скин", "отправ"].contains(where: lower.contains)
+        let transferIntent = ["перев", "скин", "отправ"].contains(where: lower.contains) || lower.contains("получ") && lower.contains("от ")
+        let unresolvedReply = "Не удалось однозначно выбрать человека или магазин. Нажмите «Переводы» или «Расходы» под чатом и выберите нужный вариант. Общую сумму вместо нужной операции я не подставляю."
+        if transferIntent, lower.range(of: #"(?:перевел|скинул|отправил)\s+(?!мне\b|кому\b|куда\b|всем\b|всего\b|за\b|на\b)[\p{L}]{2,3}\b"#, options: .regularExpression) != nil {
+            return ReviewResult(reply: unresolvedReply, changes: [])
+        }
+        let residual = queryStems.filter { Int($0) == nil }
+        if transferIntent && !incoming && !outgoing {
+            return ReviewResult(reply: "Посмотреть ваши исходящие переводы или поступления от другого человека? Выберите направление кнопкой «Переводы» под чатом.", changes: [])
+        }
+        let merchantMatches = Dictionary(grouping: transactions.filter { $0.amount < 0 }, by: { AssistantAnalytics.merchantKey($0.merchant) })
+            .compactMap { key, rows -> (String, String)? in
+                guard let name = rows.first?.merchant, !allStems(in: name).intersection(queryStems).isEmpty else { return nil }
+                return (key, name)
+            }
         let people = AssistantAnalytics.people(in: transactions, direction: direction)
         let matches = people.filter { !allStems(in: $0.name).intersection(queryStems).isEmpty }
         let query: AssistantAnalytics.Query
@@ -299,6 +318,10 @@ final class OpenRouterCategorizer {
             return ReviewResult(reply: "В выписках несколько подходящих людей: \(matches.prefix(6).map(\.name).joined(separator: ", ")). Нажмите «Переводы» под чатом и выберите нужного человека.", changes: [])
         } else if let category = requestedCategory(in: message), category != .transfers {
             query = .category(category)
+        } else if !transferIntent && merchantMatches.count == 1, let merchant = merchantMatches.first {
+            query = .merchant(key: merchant.0, name: merchant.1)
+        } else if !residual.isEmpty {
+            return ReviewResult(reply: unresolvedReply, changes: [])
         } else if transferIntent && (lower.contains("всего") || lower.contains("кому") || lower.contains("кто")) {
             query = .transfers(direction)
         } else if ["обзор", "баланс", "на что", "больше всего"].contains(where: lower.contains) {
@@ -447,11 +470,11 @@ final class OpenRouterCategorizer {
         if lower.contains("прошл") && lower.contains("месяц"),
            let previous = calendar.date(byAdding: .month, value: -1, to: now),
            let interval = calendar.dateInterval(of: .month, for: previous) {
-            return transactions.filter { interval.contains($0.date) }
+            return transactions.filter { interval.containsTransactionDate($0.date) }
         }
         if (lower.contains("этот месяц") || lower.contains("текущ") && lower.contains("месяц")),
            let interval = calendar.dateInterval(of: .month, for: now) {
-            return transactions.filter { interval.contains($0.date) }
+            return transactions.filter { interval.containsTransactionDate($0.date) }
         }
 
         let months: [(String, Int)] = [
@@ -509,6 +532,7 @@ final class OpenRouterCategorizer {
             "этого", "куда", "когда", "катег", "через", "между", "прошл",
             "текущ", "напри", "пожал", "можеш", "сентя", "октяб", "ноябр",
             "декаб", "январ", "февра", "апрел", "авгус",
+            "март", "время", "вообщ", "расхо", "доход", "поступ", "итого", "посмо", "моих", "общая", "трачу", "траты", "денег", "больш",
         ]
         return Set(allStems(in: text).filter { !ignored.contains($0) })
     }
@@ -542,8 +566,7 @@ final class OpenRouterCategorizer {
             throw APIError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let serverMessage = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw APIError.server(serverMessage)
+            throw Self.serverError(data, status: httpResponse.statusCode)
         }
 
         let result = try decoder.decode(Response.self, from: data)
@@ -575,7 +598,7 @@ final class OpenRouterCategorizer {
     enum APIError: LocalizedError {
         case invalidURL
         case invalidResponse
-        case server(String)
+        case server(Int, String)
 
         var errorDescription: String? {
             switch self {
@@ -583,9 +606,15 @@ final class OpenRouterCategorizer {
                 return "Неверный адрес AI-сервера"
             case .invalidResponse:
                 return "AI-сервер вернул неверный ответ"
-            case .server(let message):
+            case .server(_, let message):
                 return message
             }
         }
+    }
+
+    private static func serverError(_ data: Data, status: Int) -> APIError {
+        struct Envelope: Decodable { let error: String?; let message: String? }
+        let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
+        return .server(status, envelope?.error ?? envelope?.message ?? "AI-сервер вернул ошибку HTTP \(status)")
     }
 }

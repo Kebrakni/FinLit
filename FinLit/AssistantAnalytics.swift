@@ -12,6 +12,7 @@ nonisolated enum AssistantAnalytics {
         case person(key: String, name: String, direction: Direction)
         case transfers(Direction)
         case category(TxCategory)
+        case merchant(key: String, name: String)
         case expenses
         case income
         case overview
@@ -22,6 +23,7 @@ nonisolated enum AssistantAnalytics {
             case let .person(_, name, direction): return "\(direction == .outgoing ? "Переводы →" : "Переводы от") \(name)"
             case let .transfers(direction): return direction.title
             case let .category(category): return "Расходы · \(category.rawValue)"
+            case let .merchant(_, name): return "Расходы · \(name)"
             case .expenses: return "Все расходы"
             case .income: return "Все поступления"
             case .overview: return "Обзор финансов"
@@ -83,6 +85,7 @@ nonisolated enum AssistantAnalytics {
                 return row.category == .transfers && direction.includes(row) && merchantKey(row.merchant) == key
             case let .transfers(direction): return row.category == .transfers && direction.includes(row)
             case let .category(category): return row.category == category && row.amount < 0
+            case let .merchant(key, _): return row.amount < 0 && merchantKey(row.merchant) == key
             case .expenses: return row.amount < 0
             case .income: return row.amount > 0
             case .overview: return true

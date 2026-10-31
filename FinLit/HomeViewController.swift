@@ -659,7 +659,7 @@ final class HomeViewController: UIViewController {
     private func formatMoney(_ value: Double) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
+        f.maximumFractionDigits = 2
         return "\(f.string(from: NSNumber(value: value)) ?? "\(Int(value))") ₸"
     }
 }
@@ -851,7 +851,7 @@ final class HomeGoalJourneyView: UIView {
     private static func moneyText(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
         let number = formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
         return "\(number) ₸"
     }

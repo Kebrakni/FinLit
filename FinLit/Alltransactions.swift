@@ -44,7 +44,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
     private lazy var numberFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
+        f.maximumFractionDigits = 2
         return f
     }()
 
@@ -87,7 +87,10 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
             btn.layer.cornerRadius = 16
             btn.layer.cornerCurve = .continuous
             btn.layer.borderWidth = 0
-            btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 15, bottom: 8, right: 15)
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = filter.title
+            configuration.contentInsets = .init(top: 8, leading: 15, bottom: 8, trailing: 15)
+            btn.configuration = configuration
             btn.tag = filter.rawValue
             btn.addTarget(self, action: #selector(filterTapped(_:)), for: .touchUpInside)
             filterStack.addArrangedSubview(btn)
@@ -163,6 +166,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
             UIView.animate(withDuration: 0.15) {
                 btn.backgroundColor = isSelected ? FinLitTheme.accent : FinLitTheme.surface
                 btn.setTitleColor(isSelected ? .white : .secondaryLabel, for: .normal)
+                btn.configuration?.baseForegroundColor = isSelected ? .white : .secondaryLabel
                 btn.layer.shadowColor = UIColor.black.cgColor
                 btn.layer.shadowOpacity = isSelected ? 0.15 : 0.04
                 btn.layer.shadowRadius = isSelected ? 8 : 4

@@ -24,5 +24,7 @@
   {"name":"AI can correct an unfamiliar merchant","merchant":"Unfamiliar restaurant name","details":"Purchases restaurant payment","aiCategory":"cafes","expected":"cafes"},
   {"name":"Explicit manual choice survives","merchant":"Dodo Pizza","details":"Purchases Dodo Pizza","aiCategory":"cafes","manualCategory":"shopping","expected":"shopping"},
   {"name":"Missing model decision with marker","merchant":"Example","details":"Purchases Example SUBCR","expected":"subscriptions"},
-  {"name":"Opaque merchant stays unresolved","merchant":"UNKNOWN 12345","details":"Purchases UNKNOWN 12345","expected":"other"}
+  {"name":"Opaque merchant stays unresolved","merchant":"UNKNOWN 12345","details":"Purchases UNKNOWN 12345","expected":"other"},
+  {"name":"ATM withdrawal is not a deposit","merchant":"At Kaspi ATM","details":"Withdrawals At Kaspi ATM","aiCategory":"internal_transfers","expected":"cash_withdrawals"},
+  {"name":"ATM replenishment is a deposit","merchant":"At Kaspi ATM","details":"Replenishment At Kaspi ATM","aiCategory":"shopping","expected":"internal_transfers"}
 ]
