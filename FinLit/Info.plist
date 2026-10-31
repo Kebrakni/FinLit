@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Tengely</string>
+	<key>CFBundleName</key>
+	<string>Tengely</string>
 	<key>AI_API_BASE_URL</key>
 	<string>https://europe-west3-finlit-9b600.cloudfunctions.net/openrouterProxy</string>
 	<key>NSAppTransportSecurity</key>

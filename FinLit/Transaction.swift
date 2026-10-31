@@ -52,13 +52,7 @@ final class TransactionCell: UITableViewCell {
         selectionStyle = .none
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = FinLitTheme.surface
-        cardView.layer.cornerRadius = 20
-        cardView.layer.cornerCurve = .continuous
-        cardView.layer.shadowColor = UIColor.black.cgColor
-        cardView.layer.shadowOpacity = 0.055
-        cardView.layer.shadowRadius = 10
-        cardView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        FinLitTheme.styleCard(cardView, radius: 20)
 
         categoryBar.translatesAutoresizingMaskIntoConstraints = false
         categoryBar.layer.cornerRadius = 2.5
@@ -72,7 +66,8 @@ final class TransactionCell: UITableViewCell {
         iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.font = FinLitTheme.font(16, weight: .semibold)
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 2
 
         categoryLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -84,7 +79,7 @@ final class TransactionCell: UITableViewCell {
         dateLabel.textColor = .tertiaryLabel
 
         amountLabel.translatesAutoresizingMaskIntoConstraints = false
-        amountLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        amountLabel.font = .monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
         amountLabel.textAlignment = .right
         amountLabel.setContentHuggingPriority(.required, for: .horizontal)
         amountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)

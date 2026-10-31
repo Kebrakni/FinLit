@@ -21,7 +21,7 @@ final class FinancialToolsViewController: UIViewController {
     private func setupUI() {
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         segmentedControl.selectedSegmentIndex = 0
-        segmentedControl.selectedSegmentTintColor = FinLitTheme.accent
+        segmentedControl.selectedSegmentTintColor = FinLitTheme.buttonFill
         segmentedControl.setTitleTextAttributes([
             .foregroundColor: UIColor.white,
             .font: UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -553,7 +553,7 @@ private final class FinancialCalendarDayCell: UICollectionViewCell {
 
     func configure(day: Int?, hasTransactions: Bool, selected: Bool, positive: Bool) {
         dayLabel.text = day.map(String.init)
-        contentView.backgroundColor = selected ? FinLitTheme.accent : .clear
+        contentView.backgroundColor = selected ? FinLitTheme.buttonFill : .clear
         dayLabel.textColor = selected ? .white : .label
         dotView.isHidden = !hasTransactions
         dotView.backgroundColor = selected ? .white : (positive ? .systemGreen : .systemRed)

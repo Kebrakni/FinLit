@@ -29,6 +29,7 @@ final class AppStorage {
     private let importedDaysKey     = "imported_statement_days_v1"
     private let netSavingsKey       = "pdf_net_savings_v1"
     private let aiChatMessagesKey   = "ai_chat_messages_v1"
+    private let categoryReviewsKey = "category_reviews_v1"
     private var cachedTransactions: [Transaction]?
 
     // MARK: - Goal
@@ -114,6 +115,82 @@ final class AppStorage {
 
     // MARK: - Accumulated Transactions
 
+    private func loadCategoryReviews() -> [String: CategoryReviewRecord] {
+        guard let data = defaults.data(forKey: categoryReviewsKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: CategoryReviewRecord].self, from: data)) ?? [:]
+    }
+
+    private func saveCategoryReviews(_ records: [String: CategoryReviewRecord]) {
+        if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: categoryReviewsKey) }
+    }
+
+    func categoryReviewItems() -> [CategoryReviewItem] {
+        let records = loadCategoryReviews()
+        return loadAllTransactions().compactMap { transaction in
+            if let record = records[transaction.id], record.snapshot.matches(transaction) {
+                guard record.needsReview else { return nil }
+                return CategoryReviewItem(transaction: transaction, suggestedCategory: record.suggestedCategory,
+                                          reason: record.reason, fromAI: true)
+            }
+            if let manual = LearnedCategoryRules.manualCategory(for: transaction.merchant, details: transaction.details, defaults: defaults) {
+                guard manual != transaction.category else { return nil }
+                return CategoryReviewItem(transaction: transaction, suggestedCategory: manual,
+                                          reason: "Ранее вы выбрали другую категорию для этого продавца и типа операции.", fromAI: false)
+            }
+            if let evidence = Categorizer.evidence(merchant: transaction.merchant, details: transaction.details) {
+                guard evidence.category != transaction.category else { return nil }
+                return CategoryReviewItem(transaction: transaction, suggestedCategory: evidence.category, reason: evidence.reason, fromAI: false)
+            }
+            guard transaction.category == .other else { return nil }
+            return CategoryReviewItem(transaction: transaction, suggestedCategory: nil,
+                                      reason: "Назначение платежа не удалось определить уверенно. Проверьте категорию или запустите AI-проверку.", fromAI: false)
+        }.sorted { $0.transaction.date > $1.transaction.date }
+    }
+
+    /// Both clean AI results and user decisions are reusable only while the
+    /// exact operation has not changed. Pending proposals need no repeat call.
+    func transactionsForCategoryAudit() -> [Transaction] {
+        let records = loadCategoryReviews()
+        return loadAllTransactions().filter { transaction in
+            if let record = records[transaction.id], record.snapshot.matches(transaction) { return false }
+            return LearnedCategoryRules.manualCategory(for: transaction.merchant, details: transaction.details, defaults: defaults) != transaction.category
+        }.sorted { $0.date > $1.date }
+    }
+
+    @discardableResult
+    func saveCategoryAssessments(_ assessments: [CategoryAuditAssessment]) -> Int {
+        let transactions = Dictionary(loadAllTransactions().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var records = loadCategoryReviews()
+        var saved = 0
+        for item in assessments {
+            guard let current = transactions[item.snapshot.id], item.snapshot.matches(current) else { continue }
+            if let existing = records[current.id], existing.decidedByUser, existing.snapshot.matches(current) { continue }
+            records[current.id] = CategoryReviewRecord(snapshot: item.snapshot, suggestedCategory: item.suggestedCategory,
+                needsReview: item.needsReview || item.suggestedCategory != current.category, reason: item.reason,
+                decidedByUser: false, date: Date())
+            saved += 1
+        }
+        saveCategoryReviews(records)
+        return saved
+    }
+
+    /// Only the category changes; amount, sign, date and original text survive.
+    /// The snapshot prevents a stale AI card from overwriting a newer edit.
+    @discardableResult
+    func resolveCategoryReview(_ snapshot: CategoryReviewSnapshot, category: TxCategory, remember: Bool) -> Transaction? {
+        guard let current = loadAllTransactions().first(where: { $0.id == snapshot.id }), snapshot.matches(current) else { return nil }
+        let updated = current.withCategory(category)
+        var records = loadCategoryReviews()
+        records[current.id] = CategoryReviewRecord(snapshot: .init(updated), suggestedCategory: category,
+            needsReview: false, reason: "Подтверждено вами", decidedByUser: true, date: Date())
+        saveCategoryReviews(records)
+        if remember {
+            LearnedCategoryRules.confirm(merchant: current.merchant, details: current.details, category: category, defaults: defaults)
+        }
+        updateTransaction(updated, learnCategory: false)
+        return updated
+    }
+
     func loadAllTransactions() -> [Transaction] {
         if let cachedTransactions { return cachedTransactions }
         guard let data = defaults.data(forKey: allTransactionsKey),
@@ -162,8 +239,9 @@ final class AppStorage {
         if learnCategory,
            original.category != updatedTransaction.category
             || original.merchant != updatedTransaction.merchant {
-            LearnedCategoryRules.learn(
+            LearnedCategoryRules.confirm(
                 merchant: updatedTransaction.merchant,
+                details: updatedTransaction.details,
                 category: updatedTransaction.category,
                 defaults: defaults
             )
@@ -204,6 +282,7 @@ final class AppStorage {
     /// Сброс всех данных
     func clearAllTransactions() {
         cachedTransactions = []
+        defaults.removeObject(forKey: categoryReviewsKey)
         defaults.removeObject(forKey: allTransactionsKey)
         defaults.removeObject(forKey: fingerprintsKey)
         defaults.removeObject(forKey: importedDaysKey)

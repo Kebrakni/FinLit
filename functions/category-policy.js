@@ -20,7 +20,7 @@ function categoryEvidence(transaction) {
   if (atmDeposit || /kaspi deposit|пополнение депозита|депозит|from my current account kaspi pay/iu.test(text)) {
     return { category: "internal_transfers", reason: "Перемещение между своими счетами или внесение наличных" };
   }
-  if (/kaspi red|kaspi credit/iu.test(text)) return { category: "loans", reason: "Платёж Kaspi Red/Credit" };
+  if (/kaspi red|kaspi credit/iu.test(text)) return { category: "loans", reason: "Платёж по кредиту или рассрочке" };
   if (/^(?:transfers|replenishment|перевод|пополнение)(?=$|[^\p{L}\p{N}])/u.test(type)) {
     return { category: "transfers", reason: "Банк указал перевод или пополнение" };
   }

@@ -164,7 +164,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
             let filter = Filter(rawValue: btn.tag) ?? .all
             let isSelected = filter == selectedFilter
             UIView.animate(withDuration: 0.15) {
-                btn.backgroundColor = isSelected ? FinLitTheme.accent : FinLitTheme.surface
+                btn.backgroundColor = isSelected ? FinLitTheme.buttonFill : FinLitTheme.surface
                 btn.setTitleColor(isSelected ? .white : .secondaryLabel, for: .normal)
                 btn.configuration?.baseForegroundColor = isSelected ? .white : .secondaryLabel
                 btn.layer.shadowColor = UIColor.black.cgColor

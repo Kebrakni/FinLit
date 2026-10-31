@@ -5,6 +5,22 @@ import Foundation
 final class OpenRouterCategorizer {
     static let shared = OpenRouterCategorizer()
 
+    /// Presentation only: keep original statement fields and saved history intact.
+    nonisolated static func assistantDisplayText(_ text: String) -> String {
+        let replacements = [
+            (#"(?i)\bfinlit\b"#, "Tengely"),
+            (#"(?i)(?:https?://)?(?:www\.)?kaspi\.kz/?"#, "банковское приложение"),
+            (#"(?i)(?:kaspi|каспи)\s*(?:red|ред|credit|кредит)"#, "кредит или рассрочка"),
+            (#"(?i)(?:kaspi|каспи)\s*(?:gold|голд)"#, "карта"),
+            (#"(?i)(?:kaspi|каспи)\s*(?:pay|пэй)"#, "бизнес-счёт"),
+            (#"(?i)(?:kaspi|каспи)\s*(?:bank|банк)"#, "банк"),
+            (#"(?i)kaspi|каспи"#, "банк")
+        ]
+        return replacements.reduce(text) { value, rule in
+            value.replacingOccurrences(of: rule.0, with: rule.1, options: .regularExpression)
+        }
+    }
+
     private struct Request: Encodable {
         let transactions: [InputTransaction]
     }
@@ -43,7 +59,7 @@ final class OpenRouterCategorizer {
             self.amount = transaction.amount
             self.merchant = transaction.merchant
             self.details = transaction.details
-            let manual = LearnedCategoryRules.manualCategory(for: transaction.merchant)
+            let manual = LearnedCategoryRules.manualCategory(for: transaction.merchant, details: transaction.details)
             let evidence = Categorizer.evidence(merchant: transaction.merchant, details: transaction.details)
             // Keep the actual stored category: chat review must be able to see
             // that an old shopping assignment still needs correction.
@@ -107,6 +123,70 @@ final class OpenRouterCategorizer {
 
     private let session: URLSession
     private let decoder = JSONDecoder()
+
+    struct CategoryAuditRun {
+        let checkedCount: Int
+        let errorMessage: String?
+    }
+
+    private struct CategoryAuditResponse: Decodable {
+        struct Assessment: Decodable {
+            let id: String
+            let category: String
+            let needsReview: Bool
+            let reason: String
+        }
+        let assessments: [Assessment]
+    }
+
+    /// Save completed batches immediately. Cancellation or a later rate limit
+    /// must never throw away the user's already received proposals.
+    func auditCategories(
+        _ transactions: [Transaction],
+        onBatch: ([CategoryAuditAssessment]) -> Void,
+        progress: ((Int, Int) -> Void)? = nil
+    ) async throws -> CategoryAuditRun {
+        var checked = 0
+        for start in stride(from: 0, to: transactions.count, by: 40) {
+            try Task.checkCancellation()
+            let batch = Array(transactions[start..<min(start + 40, transactions.count)])
+            do {
+                let endpoint = try configuredEndpoint(path: "/api/category-audit")
+                var request = URLRequest(url: endpoint)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 90
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONEncoder().encode(Request(transactions: Self.inputTransactions(batch)))
+                let (data, response) = try await session.data(for: request)
+                guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+                guard (200..<300).contains(response.statusCode) else { throw Self.serverError(data, status: response.statusCode) }
+                let decoded = try decoder.decode(CategoryAuditResponse.self, from: data)
+                let byID = Dictionary(batch.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let grouped = Dictionary(grouping: decoded.assessments, by: \.id)
+                let results = decoded.assessments.compactMap { item -> CategoryAuditAssessment? in
+                    guard let original = byID[item.id], grouped[item.id]?.count == 1,
+                          let proposed = TxCategory(aiCode: item.category) else { return nil }
+                    let manual = LearnedCategoryRules.manualCategory(for: original.merchant, details: original.details)
+                    let evidence = Categorizer.evidence(merchant: original.merchant, details: original.details)
+                    let category = manual ?? evidence?.category ?? proposed
+                    let reason = evidence != nil && category != proposed ? evidence!.reason : item.reason
+                    return CategoryAuditAssessment(snapshot: .init(original), suggestedCategory: category,
+                        needsReview: category != original.category || (manual == nil && evidence == nil && (item.needsReview || category == .other)),
+                        reason: Self.assistantDisplayText(reason.isEmpty ? "Назначение платежа нужно уточнить у вас." : String(reason.prefix(300))))
+                }
+                guard !results.isEmpty else { throw APIError.invalidResponse }
+                try Task.checkCancellation()
+                onBatch(results)
+                checked += results.count
+                progress?(checked, transactions.count)
+            } catch {
+                if Task.isCancelled || error is CancellationError { throw CancellationError() }
+                if checked == 0 { throw error }
+                return CategoryAuditRun(checkedCount: checked, errorMessage: error.localizedDescription)
+            }
+        }
+        return CategoryAuditRun(checkedCount: checked, errorMessage: nil)
+    }
 
     init(session: URLSession = .shared) {
         self.session = session

@@ -22,6 +22,7 @@ final class AnalyticsViewController: UIViewController,
 
     private let importButton  = UIButton(type: .system)
     private let resetButton   = UIButton(type: .system)
+    private let categoryReviewButton = UIButton(type: .system)
     private let progressOverlay = ImportProgressView()
     private let summaryCard   = UIView()
     private let incomeRow     = SummaryRow(icon: "arrow.down", color: .systemGreen, title: "Доходы")
@@ -60,6 +61,19 @@ final class AnalyticsViewController: UIViewController,
         let toolsItem = UIBarButtonItem(customView: toolsButton)
         toolsItem.accessibilityLabel = "Финансовые инструменты"
         navigationItem.rightBarButtonItems = [aiItem, toolsItem]
+        var reviewConfiguration = UIButton.Configuration.tinted()
+        reviewConfiguration.title = "Проверка"
+        reviewConfiguration.image = UIImage(systemName: "checkmark.shield")
+        reviewConfiguration.imagePadding = 6
+        reviewConfiguration.baseForegroundColor = FinLitTheme.accent
+        reviewConfiguration.cornerStyle = .capsule
+        reviewConfiguration.contentInsets = .init(top: 8, leading: 10, bottom: 8, trailing: 10)
+        reviewConfiguration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var result = attributes; result.font = .systemFont(ofSize: 13, weight: .semibold); return result
+        }
+        categoryReviewButton.configuration = reviewConfiguration
+        categoryReviewButton.addTarget(self, action: #selector(openCategoryReview), for: .touchUpInside)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(customView: categoryReviewButton)
         setupUI()
         loadAndRender()
     }
@@ -201,6 +215,12 @@ final class AnalyticsViewController: UIViewController,
     // MARK: - PDF Import
 
     @objc private func importPDF() {
+        let sheet = StatementImportSheet()
+        sheet.onChooseFile = { [weak self] in self?.chooseStatementPDF() }
+        present(sheet, animated: true)
+    }
+
+    private func chooseStatementPDF() {
         if #available(iOS 14.0, *) {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.pdf], asCopy: true)
             picker.delegate = self; picker.allowsMultipleSelection = false
@@ -231,6 +251,12 @@ final class AnalyticsViewController: UIViewController,
     private func handleParsedStatement(_ result: KaspiPDFParser.ParseResult) {
         progressOverlay.update(progress: 0.18, title: "Операции найдены", detail: "Проверяем данные и дубликаты")
 
+        if let issue = result.issue {
+            setImporting(false)
+            showAlert(title: issue.title, message: issue.message)
+            return
+        }
+
         if !result.errors.isEmpty {
             setImporting(false)
             showAlert(title: "Ошибка парсинга", message: result.errors.prefix(5).joined(separator: "\n"))
@@ -239,7 +265,7 @@ final class AnalyticsViewController: UIViewController,
 
         guard !result.transactions.isEmpty else {
             setImporting(false)
-            showAlert(title: "Пусто", message: "Транзакции не найдены в этом PDF")
+            showAlert(title: "Операции не найдены", message: "Нужна выписка по карте на английском в формате PDF с колонками Date, Amount, Transaction и Details. Сохраните оригинальный PDF из банковского приложения, а не скриншот.")
             return
         }
 
@@ -355,6 +381,10 @@ final class AnalyticsViewController: UIViewController,
             message += "\nПропущено повторяющихся операций: \(importPlan.skippedTransactionCount)"
         }
         message += "\nВсего накоплено: \(allTransactions.count) транзакций"
+        let pendingReviews = AppStorage.shared.categoryReviewItems().count
+        if pendingReviews > 0 {
+            message += "\nНужно уточнить категорию: \(pendingReviews). Откройте «Проверка» в Аналитике."
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
             guard let self else { return }
             self.setImporting(false)
@@ -366,6 +396,7 @@ final class AnalyticsViewController: UIViewController,
         isImporting = importing
         importButton.isEnabled = !importing
         resetButton.isEnabled = !importing
+        categoryReviewButton.isEnabled = !importing && !allTransactions.isEmpty
         navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = !importing }
         importButton.alpha = importing ? 0.65 : 1
         importButton.configuration?.title = importing ? "Анализируем выписку…" : "Добавить выписку"
@@ -374,6 +405,12 @@ final class AnalyticsViewController: UIViewController,
         } else {
             progressOverlay.dismiss()
         }
+    }
+
+    @objc private func openCategoryReview() {
+        let review = CategoryReviewViewController()
+        review.onChange = { [weak self] in self?.loadAndRender() }
+        navigationController?.pushViewController(review, animated: true)
     }
 
     @objc private func openAIChat() {
@@ -433,6 +470,10 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func render() {
+        let pending = AppStorage.shared.categoryReviewItems().count
+        categoryReviewButton.configuration?.title = pending > 0 ? "Проверка · \(pending)" : "Проверка"
+        categoryReviewButton.accessibilityLabel = "Проверка категорий. Ждут решения: \(pending)"
+        categoryReviewButton.isEnabled = !isImporting && !allTransactions.isEmpty
         tableView.backgroundView = allTransactions.isEmpty ? FinLitEmptyStateView(
             symbol: "chart.bar.xaxis",
             title: "Ваша история денег",

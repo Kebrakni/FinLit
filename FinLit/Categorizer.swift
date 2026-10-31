@@ -29,7 +29,7 @@ nonisolated final class Categorizer {
             return Evidence(category: .internalTransfers, reason: "Перемещение денег между собственными счетами или внесение наличных")
         }
         if containsAny(text, ["kaspi red", "kaspi credit"]) {
-            return Evidence(category: .loans, reason: "Платёж Kaspi Red/Credit")
+            return Evidence(category: .loans, reason: "Платёж по кредиту или рассрочке")
         }
         if matches(bankType, #"^(transfers|replenishment|перевод|пополнение)\b"#) {
             return Evidence(category: .transfers, reason: "Банк указал перевод или пополнение")
@@ -51,7 +51,7 @@ nonisolated final class Categorizer {
     static func finalCategory(for transaction: Transaction, aiCategory: TxCategory?) -> TxCategory {
         validatedCategory(
             merchant: transaction.merchant, details: transaction.details, aiCategory: aiCategory,
-            manualCategory: LearnedCategoryRules.manualCategory(for: transaction.merchant)
+            manualCategory: LearnedCategoryRules.manualCategory(for: transaction.merchant, details: transaction.details)
         ) ?? categorize(merchant: transaction.merchant, details: transaction.details)
     }
 
@@ -59,7 +59,7 @@ nonisolated final class Categorizer {
         let text = (merchant + " " + details).lowercased()
         let detailsLow = details.lowercased()
 
-        if let manual = LearnedCategoryRules.manualCategory(for: merchant) { return manual }
+        if let manual = LearnedCategoryRules.manualCategory(for: merchant, details: details) { return manual }
         if let evidence = evidence(merchant: merchant, details: details) { return evidence.category }
 
         // 2) Taxes, fines, government fees

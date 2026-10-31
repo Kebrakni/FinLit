@@ -1,6 +1,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { requestCategoryAudit } = require("../functions/category-audit");
 
 loadDotEnv();
 
@@ -26,11 +27,11 @@ const categoryDescriptions = {
   utilities: "коммунальные услуги, связь, интернет",
   subscriptions: "регулярные цифровые подписки и облачные сервисы",
   shopping: "товары, техника, маркетплейсы и прочие покупки",
-  loans: "кредиты, займы, Kaspi Red/Credit и погашения долгов",
+  loans: "кредиты, займы, рассрочки и погашения долгов",
   taxes: "налоги, штрафы и государственные платежи",
   cash_withdrawals: "снятие наличных в банкомате",
   transfers: "переводы другим людям или на другие счета",
-  internal_transfers: "перевод между своими счетами, депозитом или Kaspi Pay",
+  internal_transfers: "перевод между своими счетами, депозитом или бизнес-счётом",
   other: "если нельзя уверенно выбрать другую категорию"
 };
 
@@ -75,6 +76,22 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && request.url === "/api/category-audit") {
+    try {
+      const body = await readJSON(request);
+      const transactions = validateTransactions(body.transactions);
+      if (!process.env.OPENROUTER_API_KEY) {
+        sendJSON(response, 503, { error: "На proxy-сервере не настроен OPENROUTER_API_KEY" }); return;
+      }
+      const assessments = await requestCategoryAudit({ fetch, apiKey: process.env.OPENROUTER_API_KEY,
+        model: MODEL, url: OPENROUTER_URL, transactions, codes: categoryCodes, descriptions: categoryDescriptions });
+      sendJSON(response, 200, { assessments });
+    } catch (error) {
+      sendJSON(response, error.statusCode || 502, { error: error.publicMessage || "Не удалось проверить категории. Попробуйте ещё раз." });
+    }
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/api/categorize") {
     sendJSON(response, 404, { error: "Not found" });
     return;
@@ -93,7 +110,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`FinLit OpenRouter proxy listening on http://127.0.0.1:${PORT}`);
+  console.log(`Tengely OpenRouter proxy listening on http://127.0.0.1:${PORT}`);
   console.log(`Model: ${MODEL}`);
 });
 
@@ -210,7 +227,9 @@ function validateTransactions(value) {
       date: String(item.date || "").slice(0, 80),
       amount: item.amount,
       merchant: String(item.merchant || "").slice(0, 500),
-      details: String(item.details || "").slice(0, 1000)
+      details: String(item.details || "").slice(0, 1000),
+      currentCategory: categoryCodes.includes(item.currentCategory) ? item.currentCategory : "other",
+      manualCategory: categoryCodes.includes(item.manualCategory) ? item.manualCategory : null,
     };
   });
 }

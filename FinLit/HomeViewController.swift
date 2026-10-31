@@ -186,13 +186,14 @@ final class HomeViewController: UIViewController {
         cardView.layer.cornerCurve = .continuous
         cardView.layer.masksToBounds = false
         cardView.layer.shadowColor = FinLitTheme.accent.cgColor
-        cardView.layer.shadowOpacity = 0.24
-        cardView.layer.shadowRadius = 24
-        cardView.layer.shadowOffset = CGSize(width: 0, height: 14)
+        cardView.layer.shadowOpacity = 0.12
+        cardView.layer.shadowRadius = 20
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 10)
 
         eyebrowLabel.translatesAutoresizingMaskIntoConstraints = false
         eyebrowLabel.text = "ВАША ФИНАНСОВАЯ ЦЕЛЬ"
-        eyebrowLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        eyebrowLabel.font = FinLitTheme.font(11, weight: .semibold, style: .caption1)
+        eyebrowLabel.adjustsFontForContentSizeCategory = true
         eyebrowLabel.textColor = UIColor.white.withAlphaComponent(0.72)
         eyebrowLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -207,7 +208,8 @@ final class HomeViewController: UIViewController {
         goalIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 28, weight: .bold)
+        titleLabel.font = FinLitTheme.font(28, weight: .bold, style: .title1)
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 2
 
@@ -681,7 +683,8 @@ final class HomeSectionHeaderView: UIView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 21, weight: .bold)
+        titleLabel.font = FinLitTheme.font(20, weight: .semibold, style: .title2)
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .label
         subtitleLabel.text = subtitle
         subtitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
@@ -970,8 +973,7 @@ final class HomeMissionCardView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func setupUI() {
-        backgroundColor = FinLitTheme.surface
-        layer.cornerRadius = 20
+        FinLitTheme.styleCard(self, radius: 20)
         layer.cornerCurve = .continuous
         layer.borderWidth = 1
         layer.borderColor = UIColor.separator.withAlphaComponent(0.14).cgColor

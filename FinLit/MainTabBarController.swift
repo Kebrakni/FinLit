@@ -1,45 +1,61 @@
 import UIKit
 
 enum FinLitTheme {
-    static let accent = UIColor(
-        red: 0.36,
-        green: 0.39,
-        blue: 0.96,
-        alpha: 1
-    )
-    static let accentSecondary = UIColor(
-        red: 0.60,
-        green: 0.33,
-        blue: 0.92,
-        alpha: 1
-    )
+    static let accent = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.57, green: 0.62, blue: 1, alpha: 1)
+            : UIColor(red: 0.28, green: 0.33, blue: 0.83, alpha: 1)
+    }
+    // The hero keeps white text legible in both appearances.
+    static let heroStart = UIColor(red: 0.19, green: 0.25, blue: 0.62, alpha: 1)
+    static let accentSecondary = UIColor(red: 0.34, green: 0.33, blue: 0.71, alpha: 1)
+    static let buttonFill = UIColor(red: 0.28, green: 0.33, blue: 0.83, alpha: 1)
     static let background = UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.035, green: 0.04, blue: 0.065, alpha: 1)
-            : UIColor(red: 0.96, green: 0.96, blue: 0.98, alpha: 1)
+            ? UIColor(red: 0.045, green: 0.055, blue: 0.08, alpha: 1)
+            : UIColor(red: 0.955, green: 0.963, blue: 0.98, alpha: 1)
     }
     static let surface = UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.085, green: 0.09, blue: 0.135, alpha: 1)
+            ? UIColor(red: 0.085, green: 0.10, blue: 0.14, alpha: 1)
             : .white
     }
     static let elevatedSurface = UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.13, green: 0.14, blue: 0.20, alpha: 1)
-            : UIColor(red: 0.985, green: 0.988, blue: 1, alpha: 1)
+            ? UIColor(red: 0.12, green: 0.14, blue: 0.19, alpha: 1)
+            : UIColor(red: 0.975, green: 0.98, blue: 0.995, alpha: 1)
     }
     static let accentSoft = UIColor { traits in
-        accent.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.22 : 0.12)
+        accent.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.14 : 0.08)
+    }
+
+    static let outline = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(traits.accessibilityContrast == .high ? 0.30 : 0.08)
+            : UIColor(red: 0.16, green: 0.23, blue: 0.37, alpha: traits.accessibilityContrast == .high ? 0.35 : 0.09)
+    }
+
+    static func font(_ size: CGFloat, weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body) -> UIFont {
+        UIFontMetrics(forTextStyle: style).scaledFont(for: .systemFont(ofSize: size, weight: weight))
     }
 
     static func styleCard(_ view: UIView, radius: CGFloat = 22) {
         view.backgroundColor = surface
         view.layer.cornerRadius = radius
         view.layer.cornerCurve = .continuous
-        view.layer.shadowColor = UIColor.black.cgColor
-        view.layer.shadowOpacity = 0.035
-        view.layer.shadowRadius = 14
-        view.layer.shadowOffset = CGSize(width: 0, height: 5)
+        view.layer.borderWidth = 1 / max(view.traitCollection.displayScale, 1)
+        updateCardLayers(view)
+        view.layer.shadowRadius = 16
+        view.layer.shadowOffset = CGSize(width: 0, height: 6)
+        view.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: UIView, _: UITraitCollection) in
+            updateCardLayers(view)
+        }
+    }
+
+    private static func updateCardLayers(_ view: UIView) {
+        view.layer.borderColor = outline.resolvedColor(with: view.traitCollection).cgColor
+        view.layer.shadowColor = UIColor(red: 0.10, green: 0.16, blue: 0.30, alpha: 1).cgColor
+        view.layer.shadowOpacity = view.traitCollection.userInterfaceStyle == .dark ? 0 : 0.045
     }
 
     static func configurePrimaryButton(
@@ -51,12 +67,12 @@ enum FinLitTheme {
         configuration.title = title
         configuration.image = UIImage(systemName: image)
         configuration.imagePadding = 9
-        configuration.baseBackgroundColor = accent
+        configuration.baseBackgroundColor = buttonFill
         configuration.baseForegroundColor = .white
         configuration.cornerStyle = .large
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var result = attributes
-            result.font = .systemFont(ofSize: 16, weight: .semibold)
+            result.font = font(16, weight: .semibold)
             return result
         }
         configuration.preferredSymbolConfigurationForImage = .init(pointSize: 16, weight: .semibold)
@@ -68,10 +84,11 @@ enum FinLitTheme {
         )
         button.configuration = configuration
         button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        button.layer.shadowColor = accent.cgColor
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.layer.shadowColor = buttonFill.cgColor
         button.layer.cornerCurve = .continuous
-        button.layer.shadowOpacity = 0.13
-        button.layer.shadowRadius = 12
+        button.layer.shadowOpacity = 0.10
+        button.layer.shadowRadius = 10
         button.layer.shadowOffset = CGSize(width: 0, height: 6)
     }
 }
@@ -102,7 +119,7 @@ final class FinLitGradientView: UIView {
 
     private func updateColors() {
         gradientLayer.colors = [
-            FinLitTheme.accent.resolvedColor(with: traitCollection).cgColor,
+            FinLitTheme.heroStart.resolvedColor(with: traitCollection).cgColor,
             FinLitTheme.accentSecondary.resolvedColor(with: traitCollection).cgColor,
         ]
     }
@@ -142,7 +159,7 @@ final class MainTabBarController: UITabBarController {
         navigationAppearance.shadowColor = .clear
         navigationAppearance.largeTitleTextAttributes = [
             .foregroundColor: UIColor.label,
-            .font: UIFont.systemFont(ofSize: 34, weight: .bold),
+            .font: FinLitTheme.font(32, weight: .bold, style: .largeTitle),
         ]
         navigationAppearance.titleTextAttributes = [
             .foregroundColor: UIColor.label,
@@ -162,11 +179,14 @@ final class MainTabBarController: UITabBarController {
         let analytics = UINavigationController(rootViewController: AnalyticsViewController())
         analytics.tabBarItem = UITabBarItem(title: "Аналитика", image: UIImage(systemName: "chart.pie"), selectedImage: UIImage(systemName: "chart.pie.fill"))
 
-        [home, battle, analytics].forEach { navigation in
+        let settings = UINavigationController(rootViewController: SettingsViewController())
+        settings.tabBarItem = UITabBarItem(title: "Настройки", image: UIImage(systemName: "gearshape"), selectedImage: UIImage(systemName: "gearshape.fill"))
+
+        [home, battle, analytics, settings].forEach { navigation in
             navigation.navigationBar.prefersLargeTitles = true
             navigation.topViewController?.navigationItem.largeTitleDisplayMode = .always
         }
 
-        viewControllers = [home, battle, analytics]
+        viewControllers = [home, battle, analytics, settings]
     }
 }

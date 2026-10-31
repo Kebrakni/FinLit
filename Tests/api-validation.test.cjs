@@ -12,6 +12,7 @@ function api(fetch) {
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only" }) };
       if (name === "./category-policy") return require("../functions/category-policy");
+      if (name === "./category-audit") return require("../functions/category-audit");
       throw Error(name);
     },
   };
@@ -23,6 +24,21 @@ function api(fetch) {
   };
 }
 const row = (id, amount = -100) => ({ id, amount, merchant: "Test", details: "Purchases Test", currentCategory: "shopping" });
+
+test("Category audit endpoint returns only proposals for provided operations", async () => {
+  const call = api(async () => ({ ok: true, json: async () => ({ choices: [{ message: { tool_calls: [{ function: {
+    name: "audit_categories", arguments: JSON.stringify({ assessments: [
+      { id: "a", category: "cafes", needsReview: false, reason: "Это кафе", amount: 10000 },
+      { id: "invented", category: "food", needsReview: true, reason: "Invented" },
+    ] }),
+  } }] } }] }) }));
+  const response = await call([row("a")], "/api/category-audit");
+  assert.equal(response.code, 200);
+  assert.equal(response.body.assessments.length, 1);
+  assert.equal(response.body.assessments[0].needsReview, true);
+  assert.equal("amount" in response.body.assessments[0], false);
+  assert.equal((await call(Array.from({ length: 41 }, (_, i) => row(String(i))), "/api/category-audit")).code, 400);
+});
 
 for (const amount of [0, NaN, Infinity, -Infinity, 1e13, "100", null, true]) {
   test(`Reject invalid money: ${String(amount)}`, async () => {

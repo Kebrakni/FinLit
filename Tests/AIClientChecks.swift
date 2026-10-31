@@ -77,6 +77,27 @@ struct AIClientChecks {
         do { _ = try await cancelled.value; preconditionFailure("Expected cancellation") }
         catch { precondition(error is CancellationError) }
         precondition(AIProtocol.calls == 0)
+        AIProtocol.calls = 0
+        var audited: [CategoryAuditAssessment] = []
+        AIProtocol.handler = { request, count in
+            precondition(request.url!.path.hasSuffix("/api/category-audit"))
+            if count == 2 { return (429, Data(#"{"error":"Limit"}"#.utf8)) }
+            let assessments = (0..<40).map { index -> [String: Any] in
+                ["id": String(index), "category": "cafes", "needsReview": false, "reason": "Кафе", "amount": 999999]
+            }
+            return (200, try JSONSerialization.data(withJSONObject: ["assessments": assessments]))
+        }
+        let audit = try await client.auditCategories(Array(rows.prefix(85)), onBatch: { audited.append(contentsOf: $0) })
+        precondition(audit.checkedCount == 40 && audit.errorMessage == "Limit" && AIProtocol.calls == 2)
+        precondition(audited.count == 40 && audited.allSatisfy { $0.snapshot.amount == -100 && $0.needsReview }, "Changed categories always require confirmation; model amounts are ignored")
+        AIProtocol.calls = 0
+        AIProtocol.handler = { _, _ in
+            (200, Data(#"{"assessments":[{"id":"invented","category":"cafes","needsReview":false,"reason":""}]}"#.utf8))
+        }
+        do {
+            _ = try await client.auditCategories(Array(rows.prefix(1)), onBatch: { _ in preconditionFailure("Must not mark fabricated operations as checked") })
+            preconditionFailure("Expected incomplete response error")
+        } catch { precondition(error is OpenRouterCategorizer.APIError) }
         print("PASS: client 429/offline short-circuit, partial batch retention, readable errors, cancellation; no real HTTP")
     }
 }

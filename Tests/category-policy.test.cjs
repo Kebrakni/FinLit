@@ -33,6 +33,7 @@ test("The actual API route validates the model decision before returning categor
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only-key" }) };
       if (name === "./category-policy") return require("../functions/category-policy");
+      if (name === "./category-audit") return require("../functions/category-audit");
       throw new Error(`Unexpected dependency: ${name}`);
     },
     async fetch(_, options) {

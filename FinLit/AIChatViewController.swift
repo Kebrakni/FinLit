@@ -51,7 +51,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         messages = AppStorage.shared.loadAIChatMessages()
         self.onApply = onApply
         super.init(nibName: nil, bundle: nil)
-        title = "Помощник"
+        title = "Tengely AI"
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -140,7 +140,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         placeholder.isUserInteractionEnabled = false
         var sendConfig = UIButton.Configuration.filled()
         sendConfig.image = UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .bold))
-        sendConfig.baseBackgroundColor = FinLitTheme.accent
+        sendConfig.baseBackgroundColor = FinLitTheme.buttonFill
         sendConfig.baseForegroundColor = .white
         sendConfig.cornerStyle = .capsule
         sendButton.configuration = sendConfig
@@ -299,6 +299,12 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
 
     private func showReviewActions() {
         showMenu(title: "Проверим распределение", detail: "Предложенные AI изменения применяются после вашего подтверждения.", options: [
+            ChatOption(title: "Спорные операции", detail: "Подтвердить категории и запомнить выбор", symbol: "checkmark.shield") { [weak self] in
+                guard let self else { return }
+                let review = CategoryReviewViewController()
+                review.onChange = { [weak self] in self?.transactions = AppStorage.shared.loadAllTransactions() }
+                self.navigationController?.pushViewController(review, animated: true)
+            },
             ChatOption(title: "Проверить категории с AI", detail: "Выберите категории и период проверки", symbol: "sparkles") { [weak self] in self?.showCategories(review: true) },
             ChatOption(title: "Исправить операцию вручную", detail: "Выберите операцию из списка", symbol: "slider.horizontal.3") { [weak self] in self?.selectOperation() }
         ])
@@ -566,7 +572,7 @@ private final class ChatTimelineCell: UITableViewCell {
         left.isActive = false
         userLeft.isActive = false
         (user ? userLeft : left)?.isActive = true
-        card.backgroundColor = user ? FinLitTheme.accent : FinLitTheme.surface
+        card.backgroundColor = user ? FinLitTheme.buttonFill : FinLitTheme.surface
     }
 
     private func label(_ text: String, size: CGFloat, weight: UIFont.Weight = .regular, color: UIColor = .label) -> UILabel {
@@ -585,7 +591,7 @@ private final class ChatTimelineCell: UITableViewCell {
         let date = DateFormatter()
         date.locale = Locale(identifier: "ru_RU")
         date.dateFormat = "dd MMM · HH:mm"
-        let caption = message.insight == nil ? "FinLit" : "По вашей выписке"
+        let caption = message.insight == nil ? "Tengely" : "По вашей выписке"
         stack.addArrangedSubview(label("\(user ? "Вы" : caption) · \(date.string(from: message.date))", size: 11, weight: .semibold, color: user ? UIColor.white.withAlphaComponent(0.75) : FinLitTheme.accent))
         if let insight = message.insight {
             stack.addArrangedSubview(label(insight.title, size: 15, weight: .semibold))
@@ -597,10 +603,11 @@ private final class ChatTimelineCell: UITableViewCell {
             stack.addArrangedSubview(label(insight.subtitle, size: 12, color: .secondaryLabel))
             if !insight.lines.isEmpty { stack.addArrangedSubview(label(insight.lines.joined(separator: "\n\n"), size: 13, color: .secondaryLabel)) }
         } else {
-            let text = label(message.text, size: 16, color: user ? .white : .label)
+            let displayText = user ? message.text : OpenRouterCategorizer.assistantDisplayText(message.text)
+            let text = label(displayText, size: 16, color: user ? .white : .label)
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 3
-            text.attributedText = NSAttributedString(string: message.text, attributes: [.font: text.font!, .foregroundColor: text.textColor!, .paragraphStyle: paragraph])
+            text.attributedText = NSAttributedString(string: displayText, attributes: [.font: text.font!, .foregroundColor: text.textColor!, .paragraphStyle: paragraph])
             stack.addArrangedSubview(text)
         }
     }

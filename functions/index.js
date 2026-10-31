@@ -1,6 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { categorizationGuidance, categoryEvidence, finalCategory } = require("./category-policy");
+const { requestCategoryAudit } = require("./category-audit");
 
 const openRouterApiKey = defineSecret("OPENROUTER_API_KEY");
 const model = "nvidia/nemotron-3-ultra-550b-a55b:free";
@@ -23,11 +24,11 @@ const categoryDescriptions = {
   utilities: "коммунальные услуги, связь, интернет",
   subscriptions: "регулярные цифровые подписки и облачные сервисы",
   shopping: "товары, техника, маркетплейсы и прочие покупки",
-  loans: "кредиты, займы, Kaspi Red/Credit и погашения долгов",
+  loans: "кредиты, займы, рассрочки и погашения долгов",
   taxes: "налоги, штрафы и государственные платежи",
   cash_withdrawals: "снятие наличных в банкомате",
   transfers: "переводы другим людям или на другие счета",
-  internal_transfers: "перевод между своими счетами, депозитом или Kaspi Pay",
+  internal_transfers: "перевод между своими счетами, депозитом или бизнес-счётом",
   other: "если нельзя уверенно выбрать другую категорию",
 };
 
@@ -151,6 +152,18 @@ exports.openrouterProxy = onRequest(
       return;
     }
 
+    if (request.method === "POST" && request.path === "/api/category-audit") {
+      try {
+        const transactions = validateTransactions(request.body?.transactions);
+        const assessments = await requestCategoryAudit({ fetch, apiKey: openRouterApiKey.value(), model,
+          url: openRouterUrl, transactions, codes: categoryCodes, descriptions: categoryDescriptions });
+        response.status(200).json({ assessments: assessments.map((item) => ({ ...item, reason: sanitizeReply(item.reason) })) });
+      } catch (error) {
+        response.status(errorStatus(error)).json({ error: error.publicMessage || timeoutMessage(error) || "Не удалось проверить категории" });
+      }
+      return;
+    }
+
     if (request.method === "POST" && request.path === "/api/chat") {
       try {
         const transactions = validateTransactions(request.body?.transactions);
@@ -224,6 +237,7 @@ async function reviewTransactions(userMessage, transactions, history, analyticsC
     : userMessage;
   const prompt = [
     "Пользователь обсуждает уже импортированные банковские операции.",
+    "Ты — Tengely AI, помощник приложения Tengely. Это актуальное название, даже если в истории используется старое. Не упоминай названия банков и их продуктов в ответе: используй «банк», «карта», «депозит», «рассрочка» или «банковское приложение». Для импорта нужна оригинальная выписка по карте в тенге на английском в PDF с колонками Date, Amount, Transaction и Details; не обещай поддержку любого банка.",
     "Ответь кратко и дружелюбно на русском языке.",
     "Ты умеешь искать операции по человеку, магазину, категории, сумме и периоду; считать переводы и траты; сравнивать периоды; находить регулярные платежи; объяснять аналитику и предлагать исправления.",
     "Если пользователь спрашивает о твоих возможностях, назови эти функции и приведи примеры: «Сколько я перевёл Даниялу?», «Покажи траты на еду за сентябрь», «Найди регулярные платежи».",
@@ -295,7 +309,7 @@ async function reviewTransactions(userMessage, transactions, history, analyticsC
 
 async function generateWeeklyMissions(transactions, goal) {
   const prompt = [
-    "Создай ровно три выполнимые финансовые миссии на ближайшие 7 дней для пользователя FinLit.",
+    "Создай ровно три выполнимые финансовые миссии на ближайшие 7 дней для пользователя Tengely. Не используй в title и detail названия банков и их продуктов: пиши «банк», «карта», «депозит» или «рассрочка».",
     "Используй разные kind. Миссии должны опираться на реальные траты, доходы и цель пользователя.",
     "save_amount: target — реалистичная сумма накопления в тенге.",
     "review_operations: target — целое число операций от 3 до 12.",
@@ -318,14 +332,14 @@ async function generateWeeklyMissions(transactions, goal) {
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://finlit-9b600.web.app",
-      "X-Title": "FinLit",
+      "X-Title": "Tengely",
     },
     body: JSON.stringify({
       model,
       messages: [
         {
           role: "system",
-          content: "Ты доброжелательный финансовый тренер FinLit. Создавай персональные задания только вызовом функции create_weekly_missions.",
+          content: "Ты доброжелательный финансовый тренер Tengely. Не используй названия банков или их продуктов; используй нейтральные слова «банк», «карта», «депозит», «рассрочка». Создавай персональные задания только вызовом функции create_weekly_missions.",
         },
         { role: "user", content: prompt },
       ],
@@ -456,7 +470,7 @@ async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSig
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://finlit-9b600.web.app",
-      "X-Title": "FinLit",
+      "X-Title": "Tengely",
     },
     body: JSON.stringify({
       model,
@@ -464,8 +478,8 @@ async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSig
         {
           role: "system",
           content: testerMode
-            ? "Ты финансовый помощник FinLit в режиме тестирования. Точно выполняй явную команду тестировщика над предоставленными операциями и отвечай вызовом функции review_transactions. Не выдумывай данные."
-            : "Ты финансовый помощник FinLit. Анализируй только предоставленные операции и отвечай вызовом функции review_transactions.",
+            ? "Ты Tengely AI, финансовый помощник приложения Tengely в режиме тестирования. Не упоминай названия банков и их продуктов в ответе; используй нейтральные слова «банк», «карта», «депозит», «рассрочка». Точно выполняй явную команду тестировщика над предоставленными операциями и отвечай вызовом функции review_transactions. Не выдумывай данные."
+            : "Ты Tengely AI, финансовый помощник приложения Tengely. Не упоминай названия банков и их продуктов в ответе; используй нейтральные слова «банк», «карта», «депозит», «рассрочка». Анализируй только предоставленные операции и отвечай вызовом функции review_transactions.",
         },
         { role: "user", content: prompt },
       ],
@@ -504,6 +518,13 @@ function isIncompleteReply(value) {
 
 function sanitizeReply(value) {
   return String(value || "")
+    .replace(/\bfinlit\b/giu, "Tengely")
+    .replace(/(?:https?:\/\/)?(?:www\.)?kaspi\.kz\/?/giu, "банковское приложение")
+    .replace(/(?:kaspi|каспи)\s*(?:red|ред|credit|кредит)/giu, "кредит или рассрочка")
+    .replace(/(?:kaspi|каспи)\s*(?:gold|голд)/giu, "карта")
+    .replace(/(?:kaspi|каспи)\s*(?:pay|пэй)/giu, "бизнес-счёт")
+    .replace(/(?:kaspi|каспи)\s*(?:bank|банк)/giu, "банк")
+    .replace(/kaspi|каспи/giu, "банк")
     .replace(/\*\*/gu, "")
     .replace(/₽/gu, "₸")
     .trim();
@@ -551,7 +572,7 @@ async function requestOpenRouterCategories(transactions) {
       Authorization: `Bearer ${openRouterApiKey.value()}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://finlit-9b600.web.app",
-      "X-Title": "FinLit",
+      "X-Title": "Tengely",
     },
     body: JSON.stringify({
       model,

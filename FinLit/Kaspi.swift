@@ -7,6 +7,27 @@ nonisolated final class KaspiPDFParser {
     struct ParseResult {
         let transactions: [Transaction]
         let errors: [String]
+        var issue: StatementImportIssue? = nil
+    }
+
+    enum StatementImportIssue: Equatable {
+        case unsupportedSource, englishRequired
+
+        var title: String {
+            switch self {
+            case .unsupportedSource: return "Эта выписка не поддерживается"
+            case .englishRequired: return "Нужна выписка на английском"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .unsupportedSource:
+                return "Сейчас Tengely поддерживает только оригинальную PDF-выписку по карте Kaspi Gold на английском языке. Выписки других банков пока не поддерживаются. Откройте карту → «Выписка», выберите English и сохраните PDF в «Файлы»."
+            case .englishRequired:
+                return "Выберите English / Английский при формировании выписки по карте и сохраните оригинальный PDF. В таблице должны быть колонки Date, Amount, Transaction и Details."
+            }
+        }
     }
 
     func parse(pdfURL: URL) -> ParseResult {
@@ -14,6 +35,13 @@ nonisolated final class KaspiPDFParser {
             return ParseResult(transactions: [], errors: ["Не открыл PDF"])
         }
         guard !doc.isLocked else { return ParseResult(transactions: [], errors: ["PDF защищён паролем. Экспортируйте выписку без пароля."]) }
+
+        guard let firstPage = doc.page(at: 0)?.string, !firstPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ParseResult(transactions: [], errors: ["Не удалось прочитать PDF. Нужен оригинальный файл с текстом, а не скан или фотография."])
+        }
+        if let issue = Self.sourceIssue(in: firstPage) {
+            return ParseResult(transactions: [], errors: [issue.message], issue: issue)
+        }
 
         let pages = (0..<doc.pageCount).compactMap { index -> String? in
             guard let page = doc.page(at: index), let raw = page.string else { return nil }
@@ -26,6 +54,20 @@ nonisolated final class KaspiPDFParser {
             return ParseResult(transactions: [], errors: ["Не удалось прочитать текст всех страниц. Нужен PDF с текстом, а не скан или фотография."])
         }
         return parseExtractedPages(pages)
+    }
+
+    /// Identify the issuer from the document header/footer, never from a
+    /// payment recipient, a filename or an isolated mention of the bank.
+    static func sourceIssue(in firstPage: String) -> StatementImportIssue? {
+        let text = firstPage.replacingOccurrences(of: "\u{00A0}", with: " ")
+        let issuer = #"(?im)^\s*(?:(?:JSC|АО|АҚ)\s*[«“\"]?)?Kaspi\s+Bank[»”\"]?\s*[,\s]+(?:BIC|БИК)\s*:?\s*CASPKZKA\b"#
+        let hasIssuer = text.range(of: issuer, options: .regularExpression) != nil
+        let hasProduct = String(text.prefix(1800)).range(of: #"(?i)\bkaspi\s+gold\b"#, options: .regularExpression) != nil
+        guard hasIssuer && hasProduct else { return .unsupportedSource }
+        let hasEnglishTable = ["date", "amount", "transaction", "details"].allSatisfy { word in
+            text.range(of: "(?i)\\b" + word + "\\b", options: .regularExpression) != nil
+        }
+        return hasEnglishTable ? nil : .englishRequired
     }
 
     /// Some Kaspi PDFs expose an entire date/amount/type column as one string.

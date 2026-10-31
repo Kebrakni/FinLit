@@ -564,7 +564,7 @@ private extension GamificationManager {
             (800, "Стратег", "scope"),
             (1_400, "Инвестор привычек", "chart.line.uptrend.xyaxis"),
             (2_200, "Финансовый мастер", "crown.fill"),
-            (3_200, "Легенда FinLit", "sparkles"),
+            (3_200, "Легенда Tengely", "sparkles"),
         ]
         let safeXP = max(xp, 0)
         let index = catalog.lastIndex { safeXP >= $0.0 } ?? 0

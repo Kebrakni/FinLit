@@ -246,6 +246,35 @@ class FinLitFormSheet: UIViewController {
     }
 }
 
+final class StatementImportSheet: FinLitFormSheet {
+    var onChooseFile: (() -> Void)?
+
+    init() {
+        super.init(
+            title: "Выписка для Tengely",
+            detail: "Поддерживается только оригинальная PDF-выписка Kaspi Gold на английском языке, с колонками Date, Amount, Transaction и Details.",
+            symbol: "doc.text.magnifyingglass",
+            action: "Выбрать PDF",
+            actionSymbol: "folder"
+        )
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        addNote("В банковском приложении откройте карту → «Выписка» и выберите нужный период.", symbol: "1.circle.fill")
+        addNote("При формировании выписки выберите English / Английский.", symbol: "2.circle.fill")
+        addNote("Сохраните PDF через «Поделиться» → «Сохранить в Файлы», затем выберите его здесь.", symbol: "3.circle.fill")
+        addNote("Выписки других банков, фото и скриншоты пока не поддерживаются.")
+    }
+
+    override func submit() {
+        let chooseFile = onChooseFile
+        dismiss(animated: true) { chooseFile?() }
+    }
+}
+
 final class GoalEditorSheet: FinLitFormSheet {
     private var goal: Goal
     private let onSave: (Goal) -> Void

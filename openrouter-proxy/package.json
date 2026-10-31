@@ -1,8 +1,8 @@
 {
-  "name": "finlit-openrouter-proxy",
+  "name": "tengely-openrouter-proxy",
   "version": "1.0.0",
   "private": true,
-  "description": "Small secret-keeping proxy for FinLit AI transaction categorization",
+  "description": "Small secret-keeping proxy for Tengely AI transaction categorization",
   "scripts": {
     "start": "node server.js"
   },
