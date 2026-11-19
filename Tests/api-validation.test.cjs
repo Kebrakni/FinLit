@@ -13,17 +13,29 @@ function api(fetch) {
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only" }) };
       if (name === "./category-policy") return require("../functions/category-policy");
       if (name === "./category-audit") return require("../functions/category-audit");
+      if (name === "./chat-quota") return { getService: () => ({ user: async () => "test-user", fetchFor: () => fetch }) };
       throw Error(name);
     },
   };
   vm.runInNewContext(source, context);
-  return async (transactions, route = "/api/categorize", extra = {}) => {
+  return async (transactions, route = "/api/categorize", extra = {}, headers = { "x-tengely-ai-consent": "2026-11-17-v1" }) => {
     const response = { code: null, body: null, set() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
-    await context.exports.openrouterProxy({ method: "POST", path: route, body: { transactions, ...extra } }, response);
+    await context.exports.openrouterProxy({ method: "POST", path: route, headers, body: { transactions, ...extra } }, response);
     return response;
   };
 }
 const row = (id, amount = -100) => ({ id, amount, merchant: "Test", details: "Purchases Test", currentCategory: "shopping" });
+
+test("Every financial AI route refuses missing/outdated consent before model calls", async () => {
+  const call = api(() => { throw Error("must not contact AI"); });
+  for (const route of ["/api/chat", "/api/categorize", "/api/category-audit", "/api/missions"]) {
+    for (const headers of [{}, { "x-tengely-ai-consent": "old" }]) {
+      const result = await call([row("a")], route, { message: "Test" }, headers);
+      assert.equal(result.code, 403);
+      assert.equal(result.body.code, "AI_CONSENT_REQUIRED");
+    }
+  }
+});
 
 test("Category audit endpoint returns only proposals for provided operations", async () => {
   const call = api(async () => ({ ok: true, json: async () => ({ choices: [{ message: { tool_calls: [{ function: {

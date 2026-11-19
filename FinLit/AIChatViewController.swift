@@ -61,6 +61,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         super.viewDidLoad()
         view.backgroundColor = FinLitTheme.background
         navigationItem.largeTitleDisplayMode = .never
+        navigationItem.prompt = "AI-чат · 100 000 токенов в сутки"
         navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "xmark"), style: .plain, target: self, action: #selector(close))
         navigationItem.leftBarButtonItem?.accessibilityLabel = "Закрыть помощника"
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
@@ -76,7 +77,16 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        refreshChatQuota()
         if !didScrollInitially { didScrollInitially = true; scrollToBottom(animated: false) }
+    }
+
+    private func refreshChatQuota() {
+        guard AIPrivacyPreferences().isAllowed else { navigationItem.prompt = "Локальный режим · AI выключен"; return }
+        Task { [weak self] in
+            guard let usage = try? await OpenRouterCategorizer.shared.chatUsage() else { return }
+            self?.navigationItem.prompt = "AI-чат · осталось \(usage.remainingTokens.formatted(.number.locale(Locale(identifier: "ru_RU")))) токенов"
+        }
     }
 
     private func setupUI() {
@@ -358,6 +368,10 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         input.resignFirstResponder()
         activeMenuID = nil
         addMessage(text, user: true)
+        performReview(text: text, history: history)
+    }
+
+    private func performReview(text: String, history: [AIChatMessage]) {
         let token = beginRequest("Готовлю ответ…")
         let snapshot = transactions
         requestTask = Task { [weak self] in
@@ -366,16 +380,39 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
                 guard let self, self.requestID == token, !Task.isCancelled else { return }
                 self.endRequest()
                 self.addMessage(result.reply, insight: result.insight)
+                self.refreshChatQuota()
                 self.offer(result.changes)
             } catch {
                 guard let self, self.requestID == token, !Task.isCancelled else { return }
                 self.endRequest()
-                self.showRetry(message: text, detail: error.localizedDescription)
+                self.refreshChatQuota()
+                if case OpenRouterCategorizer.APIError.aiConsentRequired = error {
+                    if AIPrivacyPreferences().choice == .declined {
+                        self.addMessage("AI выключен. Можно пользоваться локальными кнопками и ручными исправлениями. Включить AI можно в Настройках → Конфиденциальность.")
+                        return
+                    }
+                    let allowed = await AIConsent.request(from: self)
+                    if allowed { self.performReview(text: text, history: history) }
+                    else { self.addMessage("AI выключен. Кнопки «Переводы», «Расходы» и «Обзор» работают локально. Категории можно исправить вручную.") }
+                } else if case OpenRouterCategorizer.APIError.dailyChatLimit(let message) = error {
+                    self.addMessage(message)
+                } else { self.showRetry(message: text, detail: error.localizedDescription) }
             }
         }
     }
 
     private func reviewCategories(query: AssistantAnalytics.Query, period: AssistantAnalytics.Period) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await AIConsent.request(from: self, reconsider: !AIPrivacyPreferences().isAllowed) else {
+                self.addMessage("AI выключен. Категорию можно изменить вручную через «Проверить» → «Исправить операцию вручную».")
+                return
+            }
+            self.performCategoryReview(query: query, period: period)
+        }
+    }
+
+    private func performCategoryReview(query: AssistantAnalytics.Query, period: AssistantAnalytics.Period) {
         let selected = AssistantAnalytics.rows(for: query, period: period, in: transactions)
         let token = beginRequest("Проверяю категории · 0 из \(selected.count)")
         requestTask = Task { [weak self] in

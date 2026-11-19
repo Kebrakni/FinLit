@@ -2,8 +2,8 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 check_dir=$(mktemp -d /tmp/finlit-checks.XXXXXX)
-common=(FinLit/Models.swift FinLit/CategoryReview.swift FinLit/LearnedCategoryRules.swift FinLit/Categorizer.swift)
-client=(FinLit/AssistantAnalytics.swift FinLit/OpenRouterCategorizer.swift)
+common=(FinLit/Models.swift FinLit/AIPrivacyPreferences.swift FinLit/CategoryReview.swift FinLit/LearnedCategoryRules.swift FinLit/Categorizer.swift)
+client=(FinLit/AnonymousAIIdentity.swift FinLit/AssistantAnalytics.swift FinLit/OpenRouterCategorizer.swift)
 compiler=(xcrun swiftc -parse-as-library -module-cache-path "$check_dir/cache")
 
 "${compiler[@]}" "${common[@]}" Tests/CategorizationChecks.swift -o "$check_dir/categories"
@@ -14,7 +14,7 @@ compiler=(xcrun swiftc -parse-as-library -module-cache-path "$check_dir/cache")
 "$check_dir/client"
 "${compiler[@]}" "${common[@]}" FinLit/AppearancePreferences.swift FinLit/BattleModels.swift FinLit/Storage.swift FinLit/Gamification.swift FinLit/Kaspi.swift Tests/CoreAuditChecks.swift -o "$check_dir/core"
 "$check_dir/core"
-node --test Tests/category-policy.test.cjs Tests/category-audit.test.cjs Tests/api-validation.test.cjs
+node --test Tests/category-policy.test.cjs Tests/category-audit.test.cjs Tests/api-validation.test.cjs Tests/chat-quota.test.cjs
 node --check functions/category-audit.js
 node --check functions/index.js
 node --check openrouter-proxy/server.js

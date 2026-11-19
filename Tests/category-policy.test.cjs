@@ -34,10 +34,14 @@ test("The actual API route validates the model decision before returning categor
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only-key" }) };
       if (name === "./category-policy") return require("../functions/category-policy");
       if (name === "./category-audit") return require("../functions/category-audit");
+      if (name === "./chat-quota") return { getService: () => ({ user: async () => "test-user", fetchFor: () => context.fetch }) };
       throw new Error(`Unexpected dependency: ${name}`);
     },
     async fetch(_, options) {
-      upstreamPrompt = JSON.parse(options.body).messages[1].content;
+      const payload = JSON.parse(options.body);
+      upstreamPrompt = payload.messages[1].content;
+      assert.deepEqual(Array.from(payload.provider.only), ["nvidia"]);
+      assert.equal(payload.provider.allow_fallbacks, false);
       return { ok: true, async json() {
         return { choices: [{ message: { tool_calls: [{ function: {
           name: "categorize_transactions",
@@ -53,7 +57,7 @@ test("The actual API route validates the model decision before returning categor
     status(code) { this.code = code; return this; },
     json(body) { this.body = body; return this; },
   };
-  await context.exports.openrouterProxy({ method: "POST", path: "/api/categorize", body: {
+  await context.exports.openrouterProxy({ method: "POST", path: "/api/categorize", headers: { "x-tengely-ai-consent": "2026-11-17-v1" }, body: {
     transactions: selected.map((fixture, index) => ({ ...fixture, id: `t${index}`, amount: -100, currentCategory: "shopping" })),
   } }, response);
   assert.equal(response.code, 200);

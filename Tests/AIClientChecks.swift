@@ -28,10 +28,25 @@ struct AIClientChecks {
         configuration.protocolClasses = [AIProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let client = OpenRouterCategorizer(session: session)
+        let client = OpenRouterCategorizer(session: session, chatTokenProvider: { "test-token" }, consentProvider: { true })
         let rows = (0..<250).map { index in
             Transaction(id: String(index), date: Date(), amount: -100, merchant: "Opaque", details: "Purchases Opaque", category: .other)
         }
+        var identityCalls = 0
+        let localOnly = OpenRouterCategorizer(session: session, chatTokenProvider: { identityCalls += 1; return "must-not-be-used" }, consentProvider: { false })
+        AIProtocol.calls = 0
+        AIProtocol.handler = { _, _ in preconditionFailure("No financial HTTP request without explicit consent") }
+        func denied(_ work: () async throws -> Void) async {
+            do { try await work(); preconditionFailure("Expected consent refusal") }
+            catch { guard case OpenRouterCategorizer.APIError.aiConsentRequired = error else { preconditionFailure("Wrong refusal error") } }
+        }
+        await denied { _ = try await localOnly.categorize([rows[0]]) }
+        await denied { _ = try await localOnly.auditCategories([rows[0]], onBatch: { _ in preconditionFailure() }) }
+        await denied { _ = try await localOnly.generateWeeklyMissions(transactions: [rows[0]], goal: Goal(title: "Test", targetAmount: 1000, savedAmount: 0, deadline: nil)) }
+        await denied { _ = try await localOnly.review(message: "Проверь категорию этой операции", history: [], transactions: [rows[0]]) }
+        await denied { _ = try await localOnly.chatUsage() }
+        let localHelp = try await localOnly.review(message: "Что ты умеешь", history: [], transactions: [])
+        precondition(!localHelp.reply.isEmpty && AIProtocol.calls == 0 && identityCalls == 0)
         AIProtocol.handler = { _, _ in (429, Data(#"{"error":"Временный лимит"}"#.utf8)) }
         do { _ = try await client.categorize(rows); preconditionFailure("Expected 429") }
         catch { precondition(error.localizedDescription == "Временный лимит") }
@@ -98,6 +113,33 @@ struct AIClientChecks {
             _ = try await client.auditCategories(Array(rows.prefix(1)), onBatch: { _ in preconditionFailure("Must not mark fabricated operations as checked") })
             preconditionFailure("Expected incomplete response error")
         } catch { precondition(error is OpenRouterCategorizer.APIError) }
-        print("PASS: client 429/offline short-circuit, partial batch retention, readable errors, cancellation; no real HTTP")
+        AIProtocol.handler = { request, _ in
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            return (429, Data(#"{"error":"Дневной лимит исчерпан","code":"DAILY_CHAT_LIMIT"}"#.utf8))
+        }
+        do {
+            _ = try await client.review(message: "Проверь категорию этой операции", history: [], transactions: [rows[0]])
+            preconditionFailure("Expected daily limit error")
+        } catch {
+            guard case OpenRouterCategorizer.APIError.dailyChatLimit = error else { preconditionFailure("Daily quota must be distinguished from provider rate limits") }
+        }
+        AIProtocol.handler = { request, _ in
+            precondition(request.url!.path.hasSuffix("/api/chat-usage"))
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            return (200, Data(#"{"limit":100000,"usedTokens":1500,"reservedTokens":0,"remainingTokens":98500,"resetsAt":"2026-11-17T19:00:00Z"}"#.utf8))
+        }
+        let usage = try await client.chatUsage()
+        precondition(usage.remainingTokens == 98500 && usage.limit == 100000)
+        var consent = true
+        let revocable = OpenRouterCategorizer(session: session, chatTokenProvider: { "test-token" }, consentProvider: { consent })
+        AIProtocol.calls = 0
+        AIProtocol.handler = { request, _ in
+            precondition(request.value(forHTTPHeaderField: "X-Tengely-AI-Consent") == AIPrivacyPreferences.version)
+            let categories = (0..<80).map { ["id": String($0), "category": "food"] }
+            return (200, try JSONSerialization.data(withJSONObject: ["categories": categories]))
+        }
+        let stopped = try await revocable.categorize(rows, progress: { _, _ in consent = false })
+        precondition(stopped.count == 80 && AIProtocol.calls == 1, "Revocation must stop later statement batches")
+        print("PASS: client quota identity/status/error, 429/offline short-circuit, partial batch retention, readable errors, cancellation; no real HTTP")
     }
 }

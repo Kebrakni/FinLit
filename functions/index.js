@@ -2,6 +2,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { categorizationGuidance, categoryEvidence, finalCategory } = require("./category-policy");
 const { requestCategoryAudit } = require("./category-audit");
+const { getService: chatQuota } = require("./chat-quota");
 
 const openRouterApiKey = defineSecret("OPENROUTER_API_KEY");
 const model = "nvidia/nemotron-3-ultra-550b-a55b:free";
@@ -152,6 +153,18 @@ exports.openrouterProxy = onRequest(
       return;
     }
 
+    if (request.method === "POST" && ["/api/chat", "/api/categorize", "/api/category-audit", "/api/missions"].includes(request.path)
+        && request.headers?.["x-tengely-ai-consent"] !== "2026-11-17-v1") {
+      response.status(403).json({ code: "AI_CONSENT_REQUIRED", error: "Для AI-обработки нужно явное согласие на передачу данных Firebase, OpenRouter и NVIDIA. Обновите приложение и выберите режим в настройках конфиденциальности." });
+      return;
+    }
+
+    if (request.method === "GET" && request.path === "/api/chat-usage") {
+      try { const quota = chatQuota(); response.status(200).json(await quota.usage(await quota.user(request))); }
+      catch (error) { response.status(errorStatus(error)).json({ error: error.publicMessage || "Не удалось получить лимит чата" }); }
+      return;
+    }
+
     if (request.method === "POST" && request.path === "/api/category-audit") {
       try {
         const transactions = validateTransactions(request.body?.transactions);
@@ -178,17 +191,21 @@ exports.openrouterProxy = onRequest(
           response.status(400).json({ error: "Напишите вопрос об операции" });
           return;
         }
+        const quota = chatQuota();
+        const uid = await quota.user(request);
         response.status(200).json(await reviewTransactions(
           message,
           transactions,
           history,
           analyticsContext,
+          quota.fetchFor(uid),
         ));
       } catch (error) {
         const status = errorStatus(error);
         console.error(error);
         response.status(status).json({
           error: error.publicMessage || timeoutMessage(error) || "AI review failed",
+          code: error.code === "DAILY_CHAT_LIMIT" ? error.code : undefined,
         });
       }
       return;
@@ -230,7 +247,7 @@ exports.openrouterProxy = onRequest(
   },
 );
 
-async function reviewTransactions(userMessage, transactions, history, analyticsContext) {
+async function reviewTransactions(userMessage, transactions, history, analyticsContext, chatFetch = fetch) {
   const testerMode = /^\s*тестер\s*:/iu.test(userMessage);
   const effectiveMessage = testerMode
     ? userMessage.replace(/^\s*тестер\s*:\s*/iu, "").trim()
@@ -267,14 +284,14 @@ async function reviewTransactions(userMessage, transactions, history, analyticsC
   ].join("\n");
 
   const signal = AbortSignal.timeout(80_000);
-  let parsed = await requestReviewFromOpenRouter(prompt, testerMode, signal);
+  let parsed = await requestReviewFromOpenRouter(prompt, testerMode, signal, chatFetch);
   let reply = sanitizeReply(parsed.reply);
   if (isIncompleteReply(reply)) {
     parsed = await requestReviewFromOpenRouter([
       prompt,
       "ВАЖНО: предыдущая попытка ответа оборвалась или закончилась заголовком списка.",
       "Сформируй reply заново целиком. Если обещаешь перечисление — включи конкретные пункты в сам reply и заверши его точкой.",
-    ].join("\n"), testerMode, signal);
+    ].join("\n"), testerMode, signal, chatFetch);
     reply = sanitizeReply(parsed.reply);
   }
 
@@ -336,6 +353,7 @@ async function generateWeeklyMissions(transactions, goal) {
     },
     body: JSON.stringify({
       model,
+      provider: { only: ["nvidia"], allow_fallbacks: false },
       messages: [
         {
           role: "system",
@@ -462,8 +480,8 @@ function fallbackWeeklyMissions(transactions, goal) {
   ];
 }
 
-async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSignal.timeout(80_000)) {
-  const upstreamResponse = await fetch(openRouterUrl, {
+async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSignal.timeout(80_000), chatFetch = fetch) {
+  const upstreamResponse = await chatFetch(openRouterUrl, {
     method: "POST",
     signal,
     headers: {
@@ -474,6 +492,7 @@ async function requestReviewFromOpenRouter(prompt, testerMode, signal = AbortSig
     },
     body: JSON.stringify({
       model,
+      provider: { only: ["nvidia"], allow_fallbacks: false },
       messages: [
         {
           role: "system",
@@ -576,6 +595,7 @@ async function requestOpenRouterCategories(transactions) {
     },
     body: JSON.stringify({
       model,
+      provider: { only: ["nvidia"], allow_fallbacks: false },
       messages: [
         {
           role: "system",
@@ -685,7 +705,7 @@ function parseModelJSON(value) {
 
 function setCorsHeaders(response) {
   response.set("Access-Control-Allow-Origin", "*");
-  response.set("Access-Control-Allow-Headers", "Content-Type");
+  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tengely-AI-Consent");
 }
 
 function timeoutMessage(error) {

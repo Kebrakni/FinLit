@@ -1,4 +1,24 @@
 {
+  "hosting": {
+    "site": "finlit-9b600",
+    "public": "Privacy",
+    "ignore": ["**/.*", "**/node_modules/**"],
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "rewrites": [{ "source": "/privacy", "destination": "/index.html" }],
+    "headers": [{
+      "source": "**",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "Content-Security-Policy", "value": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
+    }]
+  },
+  "auth": {
+    "providers": { "anonymous": true }
+  },
   "functions": {
     "source": "functions",
     "runtime": "nodejs22"

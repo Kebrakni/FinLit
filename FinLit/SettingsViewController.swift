@@ -17,23 +17,24 @@ final class SettingsViewController: UITableViewController {
         tableView.register(AppearanceOptionsCell.self, forCellReuseIdentifier: "Appearance")
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { 4 }
+    override func numberOfSections(in tableView: UITableView) -> Int { 5 }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         tableView.reloadData()
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { section == 2 ? 2 : 1 }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["Оформление", "Аккаунт", "Выписки", "О приложении"][section]
+        ["Оформление", "Аккаунт", "Конфиденциальность", "Выписки", "О приложении"][section]
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         switch section {
         case 0: return "Выбор сохраняется. Режим «Как на iPhone» автоматически следует светлой или тёмной теме устройства."
         case 1: return "Привязка Apple и Google пока недоступна. Выписки, цели и история чата сохраняются на этом устройстве."
+        case 2: return AIPrivacyPreferences().isAllowed ? "Разрешение можно отозвать в любой момент. Новые данные перестанут отправляться в AI." : "AI выключен. Доступны локальная обработка выписок, аналитика и ручные исправления."
         default: return nil
         }
     }
@@ -67,6 +68,17 @@ final class SettingsViewController: UITableViewController {
             content.image = UIImage(systemName: "person.crop.circle")
             cell.accessoryType = .disclosureIndicator
         case 2:
+            if indexPath.row == 0 {
+                content.text = "Обработка с AI"
+                content.secondaryText = AIPrivacyPreferences().isAllowed ? "Разрешена · Firebase, OpenRouter, NVIDIA" : "Выключена · локальный режим"
+                content.image = UIImage(systemName: "hand.raised")
+            } else {
+                content.text = "Политика конфиденциальности"
+                content.secondaryText = "Данные, получатели и ваши права"
+                content.image = UIImage(systemName: "doc.text.magnifyingglass")
+            }
+            cell.accessoryType = .disclosureIndicator
+        case 3:
             content.text = "Поддерживаемая выписка"
             content.secondaryText = "PDF на английском · карта Kaspi Gold"
             content.image = UIImage(systemName: "doc.text")
@@ -92,6 +104,14 @@ final class SettingsViewController: UITableViewController {
                 detail: "Выписки, цели, оформление и история чата сохраняются на этом iPhone. В битвах используется ваш игровой профиль.\n\nApple и Google пока не подключены: вход и перенос данных между устройствами ещё недоступны."
             ), animated: true)
         case 2:
+            if indexPath.row == 0 {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    _ = await AIConsent.request(from: self, reconsider: true)
+                    self.tableView.reloadData()
+                }
+            } else { navigationController?.pushViewController(PrivacyPolicyViewController(), animated: true) }
+        case 3:
             present(FinLitNoticeSheet(
                 title: "Как подготовить выписку",
                 detail: "Сейчас поддерживается только оригинальная PDF-выписка по карте Kaspi Gold.\n\n1. Откройте карту → «Выписка» и выберите период.\n2. Выберите English / Английский.\n3. Сохраните PDF через «Поделиться» → «Сохранить в Файлы».\n4. В Аналитике нажмите «Добавить выписку».\n\nФото, скриншоты и выписки других банков пока не поддерживаются."

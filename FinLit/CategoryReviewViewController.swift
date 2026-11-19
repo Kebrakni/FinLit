@@ -103,6 +103,19 @@ final class CategoryReviewViewController: UITableViewController {
 
     @objc private func scan() {
         if runID != nil { stopScan(); return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await AIConsent.request(from: self, reconsider: !AIPrivacyPreferences().isAllowed) else {
+                self.status.text = "AI выключен. Можно подтвердить или исправить категории вручную."
+                self.sizeHeader()
+                return
+            }
+            self.beginScan()
+        }
+    }
+
+    private func beginScan() {
+        guard runID == nil else { return }
         let rows = AppStorage.shared.transactionsForCategoryAudit()
         guard !rows.isEmpty else { return }
         let id = UUID()

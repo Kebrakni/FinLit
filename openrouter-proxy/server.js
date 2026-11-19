@@ -76,6 +76,12 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && ["/api/categorize", "/api/category-audit"].includes(request.url)
+      && request.headers["x-tengely-ai-consent"] !== "2026-11-17-v1") {
+    sendJSON(response, 403, { code: "AI_CONSENT_REQUIRED", error: "Разрешите отправку данных в AI в настройках конфиденциальности приложения." });
+    return;
+  }
+
   if (request.method === "POST" && request.url === "/api/category-audit") {
     try {
       const body = await readJSON(request);
@@ -147,6 +153,7 @@ async function categorizeWithOpenRouter(transactions) {
     },
     body: JSON.stringify({
       model: MODEL,
+      provider: { only: ["nvidia"], allow_fallbacks: false },
       messages: [
         {
           role: "system",
@@ -267,7 +274,7 @@ function readJSON(request) {
 
 function setCorsHeaders(response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Tengely-AI-Consent");
 }
 
 function sendJSON(response, statusCode, body) {

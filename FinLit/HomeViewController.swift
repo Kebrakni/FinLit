@@ -496,6 +496,7 @@ final class HomeViewController: UIViewController {
     }
 
     private func refreshAIMissionsIfNeeded() {
+        guard AIPrivacyPreferences().isAllowed else { return }
         let manager = GamificationManager.shared
         let transactions = AppStorage.shared.loadAllTransactions()
         guard manager.needsAIMissions(),

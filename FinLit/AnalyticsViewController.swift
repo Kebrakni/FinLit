@@ -221,6 +221,14 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func chooseStatementPDF() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await AIConsent.request(from: self)
+            self.showStatementPicker()
+        }
+    }
+
+    private func showStatementPicker() {
         if #available(iOS 14.0, *) {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.pdf], asCopy: true)
             picker.delegate = self; picker.allowsMultipleSelection = false
@@ -298,39 +306,43 @@ final class AnalyticsViewController: UIViewController,
             var categorizedTransactions = parsedTransactions
             var aiCategorizedCount = 0
 
-            do {
-                await MainActor.run {
-                    self.progressOverlay.beginEstimatedAIProgress(
-                        totalTransactions: parsedTransactions.count
-                    )
-                }
-                let categories = try await OpenRouterCategorizer.shared.categorize(
-                    parsedTransactions,
-                    progress: { [weak self] processed, total in
-                        Task { @MainActor in
-                            self?.progressOverlay.reportRealAIProgress(
-                                processed: processed,
-                                total: total
-                            )
-                        }
+            if AIPrivacyPreferences().isAllowed {
+                do {
+                    await MainActor.run {
+                        self.progressOverlay.beginEstimatedAIProgress(
+                            totalTransactions: parsedTransactions.count
+                        )
                     }
-                )
-                categorizedTransactions = parsedTransactions.map { transaction in
-                    return transaction.withCategory(
-                        Categorizer.finalCategory(for: transaction, aiCategory: categories[transaction.id])
+                    let categories = try await OpenRouterCategorizer.shared.categorize(
+                        parsedTransactions,
+                        progress: { [weak self] processed, total in
+                            Task { @MainActor in
+                                self?.progressOverlay.reportRealAIProgress(
+                                    processed: processed,
+                                    total: total
+                                )
+                            }
+                        }
                     )
+                    categorizedTransactions = parsedTransactions.map { transaction in
+                        return transaction.withCategory(
+                            Categorizer.finalCategory(for: transaction, aiCategory: categories[transaction.id])
+                        )
+                    }
+                    aiCategorizedCount = categories.count
+                } catch {
+                    // Local categorization is deliberately kept as a safe fallback.
+                    print("AI categorization failed: \(error.localizedDescription)")
+                    await MainActor.run {
+                        self.progressOverlay.update(
+                            progress: 0.92,
+                            title: "Завершаем обработку",
+                            detail: AIPrivacyPreferences().isAllowed ? "AI недоступен — сохраняем локальный результат" : "AI выключен — завершаем обработку локально"
+                        )
+                    }
                 }
-                aiCategorizedCount = categories.count
-            } catch {
-                // Local categorization is deliberately kept as a safe fallback.
-                print("AI categorization failed: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.progressOverlay.update(
-                        progress: 0.92,
-                        title: "Завершаем обработку",
-                        detail: "AI недоступен — сохраняем локальный результат"
-                    )
-                }
+            } else {
+                self.progressOverlay.update(progress: 0.92, title: "Локальная обработка", detail: "Категории определены на iPhone")
             }
 
             await MainActor.run { [weak self] in

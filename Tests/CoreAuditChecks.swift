@@ -17,6 +17,15 @@ private final class AuditDefaults: UserDefaults, @unchecked Sendable {
 struct CoreAuditChecks {
     static func main() throws {
         let parser = KaspiPDFParser()
+        let privacyDefaults = AuditDefaults()
+        let privacy = AIPrivacyPreferences(defaults: privacyDefaults)
+        precondition(privacy.choice == .notAsked && !privacy.isAllowed)
+        privacy.set(.declined)
+        precondition(!AIPrivacyPreferences(defaults: privacyDefaults).isAllowed)
+        privacy.set(.allowed)
+        precondition(AIPrivacyPreferences(defaults: privacyDefaults).isAllowed)
+        privacyDefaults.set(["version": "old", "choice": "allowed"], forKey: "tengely.ai.consent.v1")
+        precondition(privacy.choice == .notAsked && !privacy.isAllowed, "Changed recipients/version require fresh consent")
         let issuer = "JSC «Kaspi Bank», BIC CASPKZKA, www.kaspi.kz"
         let source = "Kaspi Gold\nBalance statement\nDate Amount Transaction Details\n\(issuer)"
         precondition(KaspiPDFParser.sourceIssue(in: source) == nil)

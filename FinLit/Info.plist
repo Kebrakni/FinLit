@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
+	<true/>
+	<key>PRIVACY_DEVELOPER_NAME</key>
+	<string>Tengely</string>
+	<key>PRIVACY_CONTACT_EMAIL</key>
+	<string>inkarbekarnur@gmail.com</string>
+	<key>PRIVACY_POLICY_URL</key>
+	<string>https://finlit-9b600.web.app/privacy</string>
 	<key>CFBundleDisplayName</key>
 	<string>Tengely</string>
 	<key>CFBundleName</key>

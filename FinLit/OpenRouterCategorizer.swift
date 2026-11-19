@@ -122,7 +122,28 @@ final class OpenRouterCategorizer {
     }
 
     private let session: URLSession
+    private let chatTokenProvider: () async throws -> String
+    private let consentProvider: () -> Bool
     private let decoder = JSONDecoder()
+
+    struct ChatUsage: Decodable {
+        let limit: Int
+        let usedTokens: Int
+        let reservedTokens: Int
+        let remainingTokens: Int
+        let resetsAt: String
+    }
+
+    func chatUsage() async throws -> ChatUsage {
+        try requireAIConsent()
+        var request = URLRequest(url: try configuredEndpoint(path: "/api/chat-usage"))
+        request.timeoutInterval = 25
+        request.setValue("Bearer \(try await chatTokenProvider())", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await dataWithAIConsent(for: request)
+        guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard (200..<300).contains(response.statusCode) else { throw Self.serverError(data, status: response.statusCode) }
+        return try decoder.decode(ChatUsage.self, from: data)
+    }
 
     struct CategoryAuditRun {
         let checkedCount: Int
@@ -157,7 +178,7 @@ final class OpenRouterCategorizer {
                 request.timeoutInterval = 90
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONEncoder().encode(Request(transactions: Self.inputTransactions(batch)))
-                let (data, response) = try await session.data(for: request)
+                let (data, response) = try await dataWithAIConsent(for: request)
                 guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
                 guard (200..<300).contains(response.statusCode) else { throw Self.serverError(data, status: response.statusCode) }
                 let decoded = try decoder.decode(CategoryAuditResponse.self, from: data)
@@ -188,8 +209,29 @@ final class OpenRouterCategorizer {
         return CategoryAuditRun(checkedCount: checked, errorMessage: nil)
     }
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, chatTokenProvider: @escaping () async throws -> String = { try await AnonymousAIIdentity.shared.token() }, consentProvider: @escaping () -> Bool = { AIPrivacyPreferences().isAllowed }) {
         self.session = session
+        self.chatTokenProvider = chatTokenProvider
+        self.consentProvider = consentProvider
+    }
+
+    private func requireAIConsent() throws {
+        guard consentProvider() else { throw APIError.aiConsentRequired }
+    }
+
+    private func dataWithAIConsent(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try Task.checkCancellation()
+        try requireAIConsent()
+        var request = request
+        request.setValue(AIPrivacyPreferences.version, forHTTPHeaderField: "X-Tengely-AI-Consent")
+        return try await session.data(for: request)
+    }
+
+    func cancelAIRequests() {
+        let host = (try? configuredEndpoint(path: "/health"))?.host
+        session.getAllTasks { tasks in
+            tasks.filter { $0.originalRequest?.url?.host == host }.forEach { $0.cancel() }
+        }
     }
 
     /// Sends every locally categorized row to AI for a second-pass review.
@@ -199,6 +241,7 @@ final class OpenRouterCategorizer {
         progress: ((Int, Int) -> Void)? = nil
     ) async throws -> [String: TxCategory] {
         guard !transactions.isEmpty else { return [:] }
+        try requireAIConsent()
 
         // Keep requests small enough for the free endpoint and for long merchant names.
         let chunkSize = 80
@@ -207,6 +250,7 @@ final class OpenRouterCategorizer {
         var start = 0
         while start < transactions.count {
             try Task.checkCancellation()
+            if !consentProvider() { lastError = APIError.aiConsentRequired; break }
             let end = min(start + chunkSize, transactions.count)
             let batch = Array(transactions[start..<end])
             do {
@@ -217,6 +261,7 @@ final class OpenRouterCategorizer {
                 // A long annual statement should keep successful batches even if
                 // one free-model request is temporarily rate-limited.
                 lastError = error
+                if case APIError.aiConsentRequired = error { break }
                 if case APIError.server(let status, _) = error, [401, 403, 429].contains(status) || status >= 500 { break }
                 if error is DecodingError { break }
                 if let network = error as? URLError,
@@ -241,6 +286,7 @@ final class OpenRouterCategorizer {
             )
         }
         if let result = Self.quickAnswer(message: message, transactions: transactions) { return result }
+        try requireAIConsent()
         let candidates = Self.reviewCandidates(
             for: message,
             history: history,
@@ -258,6 +304,7 @@ final class OpenRouterCategorizer {
         request.httpMethod = "POST"
         request.timeoutInterval = 90
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(try await chatTokenProvider())", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(
             ReviewRequest(
                 message: message,
@@ -272,7 +319,7 @@ final class OpenRouterCategorizer {
             )
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithAIConsent(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
@@ -298,6 +345,7 @@ final class OpenRouterCategorizer {
         goal: Goal
     ) async throws -> [MissionSuggestion] {
         guard !transactions.isEmpty else { return [] }
+        try requireAIConsent()
 
         // A representative recent window keeps the prompt small while retaining
         // enough category and income context for realistic weekly targets.
@@ -320,7 +368,7 @@ final class OpenRouterCategorizer {
             )
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithAIConsent(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
@@ -641,7 +689,7 @@ final class OpenRouterCategorizer {
             Request(transactions: Self.inputTransactions(transactions))
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithAIConsent(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
@@ -679,6 +727,8 @@ final class OpenRouterCategorizer {
         case invalidURL
         case invalidResponse
         case server(Int, String)
+        case dailyChatLimit(String)
+        case aiConsentRequired
 
         var errorDescription: String? {
             switch self {
@@ -688,13 +738,20 @@ final class OpenRouterCategorizer {
                 return "AI-сервер вернул неверный ответ"
             case .server(_, let message):
                 return message
+            case .dailyChatLimit(let message):
+                return message
+            case .aiConsentRequired:
+                return "Обработка с AI выключена. Разрешите отправку данных в настройках конфиденциальности или используйте локальные функции."
             }
         }
     }
 
     private static func serverError(_ data: Data, status: Int) -> APIError {
-        struct Envelope: Decodable { let error: String?; let message: String? }
+        struct Envelope: Decodable { let error: String?; let message: String?; let code: String? }
         let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
+        if envelope?.code == "DAILY_CHAT_LIMIT" {
+            return .dailyChatLimit(envelope?.error ?? "Дневной лимит AI-чата исчерпан. Он обновится в 00:00 по времени Алматы.")
+        }
         return .server(status, envelope?.error ?? envelope?.message ?? "AI-сервер вернул ошибку HTTP \(status)")
     }
 }
