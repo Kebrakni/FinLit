@@ -43,7 +43,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
     }
     private var requestID: UUID?
     private var requestTask: Task<Void, Never>?
-    private var statusText = "Готовлю ответ…"
+    private var statusText = L10n.text("Готовлю ответ…")
     private var didScrollInitially = false
 
     init(transactions: [Transaction], onApply: @escaping ([String: (amount: Double, category: TxCategory)]) -> Void) {
@@ -61,12 +61,12 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         super.viewDidLoad()
         view.backgroundColor = FinLitTheme.background
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.prompt = "AI-чат · 100 000 токенов в сутки"
+        navigationItem.prompt = L10n.text("AI-чат · 100 000 токенов в сутки")
         navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "xmark"), style: .plain, target: self, action: #selector(close))
-        navigationItem.leftBarButtonItem?.accessibilityLabel = "Закрыть помощника"
+        navigationItem.leftBarButtonItem?.accessibilityLabel = L10n.text("Закрыть помощника")
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
-            UIAction(title: "Что умеет помощник", image: UIImage(systemName: "sparkles")) { [weak self] _ in self?.showActions() },
-            UIAction(title: "Очистить историю", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.clearChat() }
+            UIAction(title: L10n.text("Что умеет помощник"), image: UIImage(systemName: "sparkles")) { [weak self] _ in self?.showActions() },
+            UIAction(title: L10n.text("Очистить историю"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.clearChat() }
         ]))
         setupUI()
         rows = messages.map(ChatRow.message)
@@ -82,10 +82,10 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func refreshChatQuota() {
-        guard AIPrivacyPreferences().isAllowed else { navigationItem.prompt = "Локальный режим · AI выключен"; return }
+        guard AIPrivacyPreferences().isAllowed else { navigationItem.prompt = L10n.text("Локальный режим · AI выключен"); return }
         Task { [weak self] in
             guard let usage = try? await OpenRouterCategorizer.shared.chatUsage() else { return }
-            self?.navigationItem.prompt = "AI-чат · осталось \(usage.remainingTokens.formatted(.number.locale(Locale(identifier: "ru_RU")))) токенов"
+            self?.navigationItem.prompt = L10n.text("AI-чат · осталось {0} токенов", String(describing: usage.remainingTokens.formatted(.number.locale(L10n.locale))))
         }
     }
 
@@ -102,10 +102,10 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         shortcuts.translatesAutoresizingMaskIntoConstraints = false
         shortcutScroll.addSubview(shortcuts)
         let actions: [(String, String, () -> Void)] = [
-            ("Переводы", "arrow.left.arrow.right", { [weak self] in self?.showTransferDirections() }),
-            ("Расходы", "chart.pie", { [weak self] in self?.showCategories() }),
-            ("Проверить", "sparkles", { [weak self] in self?.showReviewActions() }),
-            ("Обзор", "chart.bar", { [weak self] in self?.showPeriods(for: .overview) })
+            (L10n.text("Переводы"), "arrow.left.arrow.right", { [weak self] in self?.showTransferDirections() }),
+            (L10n.text("Расходы"), "chart.pie", { [weak self] in self?.showCategories() }),
+            (L10n.text("Проверить"), "sparkles", { [weak self] in self?.showReviewActions() }),
+            (L10n.text("Обзор"), "chart.bar", { [weak self] in self?.showPeriods(for: .overview) })
         ]
         for (title, symbol, action) in actions {
             let button = UIButton(type: .system)
@@ -143,8 +143,8 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         input.textContainerInset = .init(top: 10, left: 0, bottom: 10, right: 0)
         input.isScrollEnabled = false
         input.delegate = self
-        input.accessibilityLabel = "Сообщение помощнику"
-        placeholder.text = "Сообщение…"
+        input.accessibilityLabel = L10n.text("Сообщение помощнику")
+        placeholder.text = L10n.text("Сообщение…")
         placeholder.font = .preferredFont(forTextStyle: .body)
         placeholder.textColor = .placeholderText
         placeholder.isUserInteractionEnabled = false
@@ -205,7 +205,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         let sending = requestID != nil
         sendButton.isEnabled = sending || !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         sendButton.configuration?.image = UIImage(systemName: sending ? "stop.fill" : "arrow.up")
-        sendButton.accessibilityLabel = sending ? "Остановить запрос" : "Отправить сообщение"
+        sendButton.accessibilityLabel = sending ? L10n.text("Остановить запрос") : L10n.text("Отправить сообщение")
         navigationItem.rightBarButtonItem?.isEnabled = !sending
         dock.arrangedSubviews.first?.isUserInteractionEnabled = !sending
         dock.arrangedSubviews.first?.alpha = sending ? 0.45 : 1
@@ -237,63 +237,63 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func showActions() {
-        showMenu(title: "С чего начнём?", detail: "Выберите действие или напишите свой вопрос ниже.", options: [
-            ChatOption(title: "Сколько кому перевёл", detail: "Человек → период → точная сумма", symbol: "arrow.up.right") { [weak self] in self?.showTransferDirections() },
-            ChatOption(title: "Сколько на что потратил", detail: "Категория → период → операции", symbol: "chart.pie") { [weak self] in self?.showCategories() },
-            ChatOption(title: "Поправить распределение", detail: "AI-проверка или ручное исправление", symbol: "sparkles") { [weak self] in self?.showReviewActions() },
-            ChatOption(title: "Обзор за период", detail: "Доходы, расходы и основные категории", symbol: "chart.bar") { [weak self] in self?.showPeriods(for: .overview) }
+        showMenu(title: L10n.text("С чего начнём?"), detail: L10n.text("Выберите действие или напишите свой вопрос ниже."), options: [
+            ChatOption(title: L10n.text("Сколько кому перевёл"), detail: L10n.text("Человек → период → точная сумма"), symbol: "arrow.up.right") { [weak self] in self?.showTransferDirections() },
+            ChatOption(title: L10n.text("Сколько на что потратил"), detail: L10n.text("Категория → период → операции"), symbol: "chart.pie") { [weak self] in self?.showCategories() },
+            ChatOption(title: L10n.text("Поправить распределение"), detail: L10n.text("AI-проверка или ручное исправление"), symbol: "sparkles") { [weak self] in self?.showReviewActions() },
+            ChatOption(title: L10n.text("Обзор за период"), detail: L10n.text("Доходы, расходы и основные категории"), symbol: "chart.bar") { [weak self] in self?.showPeriods(for: .overview) }
         ])
     }
 
     private func showTransferDirections() {
-        showMenu(title: "Какие переводы посмотреть?", detail: "Выберите направление перевода.", options: [
-            ChatOption(title: "Кому я переводил", symbol: "arrow.up.right") { [weak self] in self?.showPeople(.outgoing) },
-            ChatOption(title: "Кто переводил мне", symbol: "arrow.down.left") { [weak self] in self?.showPeople(.incoming) }
+        showMenu(title: L10n.text("Какие переводы посмотреть?"), detail: L10n.text("Выберите направление перевода."), options: [
+            ChatOption(title: L10n.text("Кому я переводил"), symbol: "arrow.up.right") { [weak self] in self?.showPeople(.outgoing) },
+            ChatOption(title: L10n.text("Кто переводил мне"), symbol: "arrow.down.left") { [weak self] in self?.showPeople(.incoming) }
         ])
     }
 
     private func showPeople(_ direction: AssistantAnalytics.Direction) {
         let people = AssistantAnalytics.people(in: transactions, direction: direction)
-        guard !people.isEmpty else { addMessage("В загруженных выписках не найдено \(direction == .outgoing ? "исходящих" : "входящих") переводов людям."); return }
+        guard !people.isEmpty else { addMessage(L10n.text("В загруженных выписках не найдено {0} переводов людям.", String(describing: direction == .outgoing ? L10n.text("исходящих") : L10n.text("входящих")))); return }
         var options = people.prefix(6).map { person in
-            ChatOption(title: person.name, detail: "\(person.count) операций", symbol: "person.crop.circle") { [weak self] in
+            ChatOption(title: person.name, detail: L10n.text("{0} операций", String(describing: person.count)), symbol: "person.crop.circle") { [weak self] in
                 self?.selectPerson(person, direction: direction)
             }
         }
         if people.count > 6 {
-            options.append(ChatOption(title: "Все люди · \(people.count)", detail: "Открыть список с поиском", symbol: "magnifyingglass") { [weak self] in
-                self?.showChoices(title: direction.title, choices: people.map { .init(id: $0.key, title: $0.name, detail: "\($0.count) операций") }) { [weak self] key in
+            options.append(ChatOption(title: L10n.text("Все люди · {0}", String(describing: people.count)), detail: L10n.text("Открыть список с поиском"), symbol: "magnifyingglass") { [weak self] in
+                self?.showChoices(title: direction.title, choices: people.map { .init(id: $0.key, title: $0.name, detail: L10n.text("{0} операций", String(describing: $0.count))) }) { [weak self] key in
                     guard let person = people.first(where: { $0.key == key }) else { return }
                     self?.selectPerson(person, direction: direction)
                 }
             })
         }
-        showMenu(title: direction.title, detail: "Люди из ваших выписок. Затем выберем период.", options: options)
+        showMenu(title: direction.title, detail: L10n.text("Люди из ваших выписок. Затем выберем период."), options: options)
     }
 
     private func selectPerson(_ person: AssistantAnalytics.Person, direction: AssistantAnalytics.Direction) {
-        addMessage("\(direction == .outgoing ? "Мои переводы →" : "Переводы от") \(person.name)", user: true)
+        addMessage("\(direction == .outgoing ? L10n.text("Мои переводы →") : L10n.text("Переводы от")) \(person.name)", user: true)
         showPeriods(for: .person(key: person.key, name: person.name, direction: direction))
     }
 
     private func showCategories(review: Bool = false) {
         let categories = Set(transactions.filter { review || $0.amount < 0 }.map(\.category)).sorted { $0.sortOrder < $1.sortOrder }
-        guard !categories.isEmpty else { addMessage("Сначала добавьте выписку в аналитике — здесь появятся её категории."); return }
+        guard !categories.isEmpty else { addMessage(L10n.text("Сначала добавьте выписку в аналитике — здесь появятся её категории.")); return }
         var options = categories.map { category in
-            ChatOption(title: category.rawValue, symbol: category.icon) { [weak self] in
-                self?.addMessage(category.rawValue, user: true)
+            ChatOption(title: category.displayName, symbol: category.icon) { [weak self] in
+                self?.addMessage(category.displayName, user: true)
                 self?.showPeriods(for: review ? .review(category) : .category(category))
             }
         }
         if review {
-            options.insert(ChatOption(title: "Все категории", symbol: "square.grid.2x2") { [weak self] in self?.showPeriods(for: .review(nil)) }, at: 0)
+            options.insert(ChatOption(title: L10n.text("Все категории"), symbol: "square.grid.2x2") { [weak self] in self?.showPeriods(for: .review(nil)) }, at: 0)
         }
-        showMenu(title: review ? "Что проверим?" : "Расходы по категории", detail: "Выберите категорию из загруженных операций.", options: options)
+        showMenu(title: review ? L10n.text("Что проверим?") : L10n.text("Расходы по категории"), detail: L10n.text("Выберите категорию из загруженных операций."), options: options)
     }
 
     private func showPeriods(for query: AssistantAnalytics.Query) {
         let selected = AssistantAnalytics.rows(for: query, in: transactions)
-        guard !selected.isEmpty else { addMessage("Для этого действия пока нет подходящих операций. Добавьте выписку или выберите другую категорию."); return }
+        guard !selected.isEmpty else { addMessage(L10n.text("Для этого действия пока нет подходящих операций. Добавьте выписку или выберите другую категорию.")); return }
         let periods = AssistantAnalytics.periods(in: selected)
         let options = periods.map { period in
             ChatOption(title: period.title, symbol: period == .all ? "calendar" : "calendar.badge.clock") { [weak self] in
@@ -304,24 +304,24 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
                 else { self.answerLocally(query: query, period: period) }
             }
         }
-        showMenu(title: "За какой период?", detail: query.title, options: options)
+        showMenu(title: L10n.text("За какой период?"), detail: query.title, options: options)
     }
 
     private func showReviewActions() {
-        showMenu(title: "Проверим распределение", detail: "Предложенные AI изменения применяются после вашего подтверждения.", options: [
-            ChatOption(title: "Спорные операции", detail: "Подтвердить категории и запомнить выбор", symbol: "checkmark.shield") { [weak self] in
+        showMenu(title: L10n.text("Проверим распределение"), detail: L10n.text("Предложенные AI изменения применяются после вашего подтверждения."), options: [
+            ChatOption(title: L10n.text("Спорные операции"), detail: L10n.text("Подтвердить категории и запомнить выбор"), symbol: "checkmark.shield") { [weak self] in
                 guard let self else { return }
                 let review = CategoryReviewViewController()
                 review.onChange = { [weak self] in self?.transactions = AppStorage.shared.loadAllTransactions() }
                 self.navigationController?.pushViewController(review, animated: true)
             },
-            ChatOption(title: "Проверить категории с AI", detail: "Выберите категории и период проверки", symbol: "sparkles") { [weak self] in self?.showCategories(review: true) },
-            ChatOption(title: "Исправить операцию вручную", detail: "Выберите операцию из списка", symbol: "slider.horizontal.3") { [weak self] in self?.selectOperation() }
+            ChatOption(title: L10n.text("Проверить категории с AI"), detail: L10n.text("Выберите категории и период проверки"), symbol: "sparkles") { [weak self] in self?.showCategories(review: true) },
+            ChatOption(title: L10n.text("Исправить операцию вручную"), detail: L10n.text("Выберите операцию из списка"), symbol: "slider.horizontal.3") { [weak self] in self?.selectOperation() }
         ])
     }
 
     private func answerLocally(query: AssistantAnalytics.Query, period: AssistantAnalytics.Period) {
-        let token = beginRequest("Считаю по выписке…")
+        let token = beginRequest(L10n.text("Считаю по выписке…"))
         let snapshot = transactions
         requestTask = Task { [weak self] in
             let answer = await Task.detached(priority: .userInitiated) {
@@ -335,15 +335,15 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
 
     private func selectOperation() {
         let choices = transactions.sorted { $0.date > $1.date }.map { transaction in
-            ChatChoice(id: transaction.id, title: transaction.merchant, detail: "\(AssistantAnalytics.money(transaction.amount)) · \(transaction.category.rawValue)")
+            ChatChoice(id: transaction.id, title: transaction.merchant, detail: "\(AssistantAnalytics.money(transaction.amount)) · \(transaction.category.displayName)")
         }
-        guard !choices.isEmpty else { addMessage("Сначала загрузите выписку."); return }
-        showChoices(title: "Выберите операцию", choices: choices) { [weak self] id in
+        guard !choices.isEmpty else { addMessage(L10n.text("Сначала загрузите выписку.")); return }
+        showChoices(title: L10n.text("Выберите операцию"), choices: choices) { [weak self] id in
             guard let self, let transaction = self.transactions.first(where: { $0.id == id }) else { return }
             let editor = TransactionEditorViewController(transaction: transaction) { [weak self] updated in
                 guard let self else { return }
                 self.transactions = AppStorage.shared.loadAllTransactions()
-                self.addMessage("Сохранено: \(updated.merchant) · \(AssistantAnalytics.money(updated.amount)) · \(updated.category.rawValue).")
+                self.addMessage(L10n.text("Сохранено: {0} · {1} · {2}.", String(describing: updated.merchant), String(describing: AssistantAnalytics.money(updated.amount)), String(describing: updated.category.displayName)))
             }
             let navigation = UINavigationController(rootViewController: editor)
             navigation.modalPresentationStyle = .pageSheet
@@ -372,7 +372,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func performReview(text: String, history: [AIChatMessage]) {
-        let token = beginRequest("Готовлю ответ…")
+        let token = beginRequest(L10n.text("Готовлю ответ…"))
         let snapshot = transactions
         requestTask = Task { [weak self] in
             do {
@@ -388,12 +388,12 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
                 self.refreshChatQuota()
                 if case OpenRouterCategorizer.APIError.aiConsentRequired = error {
                     if AIPrivacyPreferences().choice == .declined {
-                        self.addMessage("AI выключен. Можно пользоваться локальными кнопками и ручными исправлениями. Включить AI можно в Настройках → Конфиденциальность.")
+                        self.addMessage(L10n.text("AI выключен. Можно пользоваться локальными кнопками и ручными исправлениями. Включить AI можно в Настройках → Конфиденциальность."))
                         return
                     }
                     let allowed = await AIConsent.request(from: self)
                     if allowed { self.performReview(text: text, history: history) }
-                    else { self.addMessage("AI выключен. Кнопки «Переводы», «Расходы» и «Обзор» работают локально. Категории можно исправить вручную.") }
+                    else { self.addMessage(L10n.text("AI выключен. Кнопки «Переводы», «Расходы» и «Обзор» работают локально. Категории можно исправить вручную.")) }
                 } else if case OpenRouterCategorizer.APIError.dailyChatLimit(let message) = error {
                     self.addMessage(message)
                 } else { self.showRetry(message: text, detail: error.localizedDescription) }
@@ -405,7 +405,7 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await AIConsent.request(from: self, reconsider: !AIPrivacyPreferences().isAllowed) else {
-                self.addMessage("AI выключен. Категорию можно изменить вручную через «Проверить» → «Исправить операцию вручную».")
+                self.addMessage(L10n.text("AI выключен. Категорию можно изменить вручную через «Проверить» → «Исправить операцию вручную»."))
                 return
             }
             self.performCategoryReview(query: query, period: period)
@@ -414,13 +414,13 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
 
     private func performCategoryReview(query: AssistantAnalytics.Query, period: AssistantAnalytics.Period) {
         let selected = AssistantAnalytics.rows(for: query, period: period, in: transactions)
-        let token = beginRequest("Проверяю категории · 0 из \(selected.count)")
+        let token = beginRequest(L10n.text("Проверяю категории · 0 из {0}", String(describing: selected.count)))
         requestTask = Task { [weak self] in
             do {
                 let categories = try await OpenRouterCategorizer.shared.categorize(selected) { [weak self] done, total in
                     Task { @MainActor [weak self] in
                         guard let self, self.requestID == token else { return }
-                        self.statusText = "Проверяю категории · \(done) из \(total)"
+                        self.statusText = L10n.text("Проверяю категории · {0} из {1}", String(describing: done), String(describing: total))
                         self.reloadTyping()
                     }
                 }
@@ -428,17 +428,17 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
                 self.endRequest()
                 let changes = selected.compactMap { row -> OpenRouterCategorizer.ReviewChange? in
                     guard let category = categories[row.id], category != row.category else { return nil }
-                    return .init(id: row.id, category: category, amount: row.amount, reason: "Повторная AI-проверка категории")
+                    return .init(id: row.id, category: category, amount: row.amount, reason: L10n.text("Повторная AI-проверка категории"))
                 }
-                let coverage = "Проверено \(categories.count) из \(selected.count) операций."
+                let coverage = L10n.text("Проверено {0} из {1} операций.", String(describing: categories.count), String(describing: selected.count))
                 GamificationManager.shared.recordAIReview(correctionCount: 0, reviewedCount: categories.count)
-                self.addMessage(changes.isEmpty ? "\(coverage) По проверенным операциям AI не предложил менять категории." : "\(coverage) Предложений изменить категорию: \(changes.count). Проверьте их перед применением.")
+                self.addMessage(changes.isEmpty ? L10n.text("{0} По проверенным операциям AI не предложил менять категории.", String(describing: coverage)) : L10n.text("{0} Предложений изменить категорию: {1}. Проверьте их перед применением.", String(describing: coverage), String(describing: changes.count)))
                 self.offer(changes, alreadyReviewed: true)
             } catch {
                 guard let self, self.requestID == token, !Task.isCancelled else { return }
                 self.endRequest()
-                self.showMenu(title: "Не удалось завершить проверку", detail: error.localizedDescription, options: [
-                    ChatOption(title: "Повторить", symbol: "arrow.clockwise") { [weak self] in self?.reviewCategories(query: query, period: period) }
+                self.showMenu(title: L10n.text("Не удалось завершить проверку"), detail: error.localizedDescription, options: [
+                    ChatOption(title: L10n.text("Повторить"), symbol: "arrow.clockwise") { [weak self] in self?.reviewCategories(query: query, period: period) }
                 ])
             }
         }
@@ -475,8 +475,8 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private func showRetry(message: String, detail: String) {
-        showMenu(title: "Ответ пока не получен", detail: detail, options: [
-            ChatOption(title: "Повторить вопрос", symbol: "arrow.clockwise") { [weak self] in
+        showMenu(title: L10n.text("Ответ пока не получен"), detail: detail, options: [
+            ChatOption(title: L10n.text("Повторить вопрос"), symbol: "arrow.clockwise") { [weak self] in
                 self?.input.text = message
                 self?.sendOrStop()
             }
@@ -495,42 +495,42 @@ final class AIChatViewController: UIViewController, UITableViewDataSource, UITab
         var lines = changes.prefix(6).compactMap { change -> String? in
             guard let row = byID[change.id] else { return nil }
             let amount = abs(row.amount - change.amount) > 0.001 ? " · \(AssistantAnalytics.money(row.amount)) → \(AssistantAnalytics.money(change.amount))" : ""
-            return "\(row.merchant)\n\(row.category.rawValue) → \(change.category.rawValue)\(amount)"
+            return "\(row.merchant)\n\(row.category.displayName) → \(change.category.displayName)\(amount)"
         }
-        if changes.count > 6 { lines.append("И ещё \(changes.count - 6) исправлений. Откройте полный список перед применением.") }
+        if changes.count > 6 { lines.append(L10n.text("И ещё {0} исправлений. Откройте полный список перед применением.", String(describing: changes.count - 6))) }
         var options: [ChatOption] = []
         if changes.count > 6 {
-            options.append(ChatOption(title: "Все исправления · \(changes.count)", symbol: "list.bullet") { [weak self] in
+            options.append(ChatOption(title: L10n.text("Все исправления · {0}", String(describing: changes.count)), symbol: "list.bullet") { [weak self] in
                 let detail = changes.compactMap { change -> String? in
                     guard let row = byID[change.id] else { return nil }
-                    return "\(row.merchant) · \(AssistantAnalytics.money(row.amount))\n\(row.category.rawValue) → \(change.category.rawValue) · \(AssistantAnalytics.money(change.amount))"
+                    return "\(row.merchant) · \(AssistantAnalytics.money(row.amount))\n\(row.category.displayName) → \(change.category.displayName) · \(AssistantAnalytics.money(change.amount))"
                 }.joined(separator: "\n\n")
-                self?.present(FinLitNoticeSheet(title: "Предлагаемые изменения", detail: detail), animated: true)
+                self?.present(FinLitNoticeSheet(title: L10n.text("Предлагаемые изменения"), detail: detail), animated: true)
             })
         }
-        options.append(ChatOption(title: "Применить · \(changes.count)", symbol: "checkmark.circle.fill") { [weak self] in
+        options.append(ChatOption(title: L10n.text("Применить · {0}", String(describing: changes.count)), symbol: "checkmark.circle.fill") { [weak self] in
             guard let self else { return }
             self.activeMenuID = nil
             let corrections = Dictionary(changes.map { ($0.id, (amount: $0.amount, category: $0.category)) }, uniquingKeysWith: { first, _ in first })
             self.onApply(corrections)
             self.transactions = AppStorage.shared.loadAllTransactions()
             GamificationManager.shared.recordAIReview(correctionCount: changes.count, reviewedCount: alreadyReviewed ? 0 : changes.count)
-            self.addMessage("Изменения применены: \(changes.count). Аналитика обновлена.")
+            self.addMessage(L10n.text("Изменения применены: {0}. Аналитика обновлена.", String(describing: changes.count)))
         })
-        options.append(ChatOption(title: "Оставить как есть", symbol: "xmark") { [weak self] in
+        options.append(ChatOption(title: L10n.text("Оставить как есть"), symbol: "xmark") { [weak self] in
             self?.activeMenuID = nil
-            self?.addMessage("Категории оставлены без изменений.")
+            self?.addMessage(L10n.text("Категории оставлены без изменений."))
         })
-        showMenu(title: "Предлагаю исправления", detail: lines.joined(separator: "\n\n"), options: options)
+        showMenu(title: L10n.text("Предлагаю исправления"), detail: lines.joined(separator: "\n\n"), options: options)
     }
 
     @objc private func close() { cancelRequest(); dismiss(animated: true) }
 
     private func clearChat() {
         guard requestID == nil else { return }
-        let alert = UIAlertController(title: "Очистить переписку?", message: "Сообщения будут удалены с этого устройства.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Очистить", style: .destructive) { [weak self] _ in
+        let alert = UIAlertController(title: L10n.text("Очистить переписку?"), message: L10n.text("Сообщения будут удалены с этого устройства."), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("Отмена"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("Очистить"), style: .destructive) { [weak self] _ in
             guard let self else { return }
             self.messages.removeAll()
             self.rows.removeAll()
@@ -626,10 +626,10 @@ private final class ChatTimelineCell: UITableViewCell {
         let user = message.role == .user
         reset(user: user)
         let date = DateFormatter()
-        date.locale = Locale(identifier: "ru_RU")
+        date.locale = L10n.locale
         date.dateFormat = "dd MMM · HH:mm"
-        let caption = message.insight == nil ? "Tengely" : "По вашей выписке"
-        stack.addArrangedSubview(label("\(user ? "Вы" : caption) · \(date.string(from: message.date))", size: 11, weight: .semibold, color: user ? UIColor.white.withAlphaComponent(0.75) : FinLitTheme.accent))
+        let caption = message.insight == nil ? "Tengely" : L10n.text("По вашей выписке")
+        stack.addArrangedSubview(label("\(user ? L10n.text("Вы") : caption) · \(date.string(from: message.date))", size: 11, weight: .semibold, color: user ? UIColor.white.withAlphaComponent(0.75) : FinLitTheme.accent))
         if let insight = message.insight {
             stack.addArrangedSubview(label(insight.title, size: 15, weight: .semibold))
             let amount = label(AssistantAnalytics.money(insight.amount), size: 29, weight: .bold)
@@ -716,7 +716,7 @@ private final class ChatChoiceViewController: UITableViewController, UISearchRes
         navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
         let search = UISearchController(searchResultsController: nil)
         search.searchResultsUpdater = self
-        search.searchBar.placeholder = "Имя, название или сумма"
+        search.searchBar.placeholder = L10n.text("Имя, название или сумма")
         search.obscuresBackgroundDuringPresentation = false
         navigationItem.searchController = search
         navigationItem.hidesSearchBarWhenScrolling = false

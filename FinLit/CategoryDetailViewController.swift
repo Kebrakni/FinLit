@@ -11,14 +11,14 @@ final class CategoryDetailViewController: UIViewController, UITableViewDataSourc
         self.category = category
         self.transactions = transactions
         super.init(nibName: nil, bundle: nil)
-        title = category.rawValue
+        title = category.displayName
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     private lazy var dateFormatter: DateFormatter = {
         let df = DateFormatter()
-        df.locale = Locale(identifier: "ru_RU")
+        df.locale = L10n.locale
         df.dateFormat = "dd.MM.yyyy"
         return df
     }()

@@ -140,6 +140,27 @@ struct AIClientChecks {
         }
         let stopped = try await revocable.categorize(rows, progress: { _, _ in consent = false })
         precondition(stopped.count == 80 && AIProtocol.calls == 1, "Revocation must stop later statement batches")
+        let previousLanguage = UserDefaults.standard.object(forKey: "tengely.language")
+        defer {
+            if let previousLanguage { UserDefaults.standard.set(previousLanguage, forKey: "tengely.language") }
+            else { UserDefaults.standard.removeObject(forKey: "tengely.language") }
+        }
+        LanguagePreferences().language = .english
+        func sample(_ month: Int, _ amount: Double) -> Transaction {
+            Transaction(date: Calendar.current.date(from: DateComponents(year: 2026, month: month, day: 20))!, amount: amount,
+                        merchant: "Grocer", details: "Purchases Grocer", category: .food)
+        }
+        AIProtocol.calls = 0
+        AIProtocol.handler = { _, _ in preconditionFailure("English exact totals should work locally") }
+        let englishTotal = try await client.review(message: "How much did I spend on groceries in September 2026?", history: [], transactions: [sample(9, -120), sample(10, -999)])
+        precondition(englishTotal.insight?.amount == 120 && englishTotal.reply.contains("Expenses") && !englishTotal.reply.contains("999"))
+        let englishHelp = try await localOnly.review(message: "What can you do?", history: [], transactions: [])
+        precondition(englishHelp.reply.contains("Use the buttons") && AIProtocol.calls == 0)
+        AIProtocol.handler = { request, _ in
+            precondition(request.value(forHTTPHeaderField: "X-Tengely-Language") == "en")
+            return (200, Data(#"{"categories":[{"id":"0","category":"food"}]}"#.utf8))
+        }
+        _ = try await client.categorize([rows[0]])
         print("PASS: client quota identity/status/error, 429/offline short-circuit, partial batch retention, readable errors, cancellation; no real HTTP")
     }
 }

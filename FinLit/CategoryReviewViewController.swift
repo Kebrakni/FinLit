@@ -18,7 +18,7 @@ final class CategoryReviewViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Проверка категорий"
+        title = L10n.text("Проверка категорий")
         navigationItem.largeTitleDisplayMode = .never
         tableView.backgroundColor = FinLitTheme.background
         tableView.separatorStyle = .none
@@ -48,7 +48,7 @@ final class CategoryReviewViewController: UITableViewController {
         summary.numberOfLines = 0
         summary.adjustsFontForContentSizeCategory = true
         let detail = UILabel()
-        detail.text = "Подтвердите категорию или исправьте её. Суммы останутся прежними. Можно запомнить выбор для того же продавца и типа платежа."
+        detail.text = L10n.text("Подтвердите категорию или исправьте её. Суммы останутся прежними. Можно запомнить выбор для того же продавца и типа платежа.")
         detail.font = FinLitTheme.font(14, style: .subheadline)
         detail.numberOfLines = 0
         detail.textColor = .secondaryLabel
@@ -56,7 +56,7 @@ final class CategoryReviewViewController: UITableViewController {
         status.font = FinLitTheme.font(13, style: .footnote)
         status.numberOfLines = 0
         status.textColor = .secondaryLabel
-        FinLitTheme.configurePrimaryButton(scanButton, title: "Проверить с AI", image: "sparkles")
+        FinLitTheme.configurePrimaryButton(scanButton, title: L10n.text("Проверить с AI"), image: "sparkles")
         scanButton.addTarget(self, action: #selector(scan), for: .touchUpInside)
         [summary, detail, scanButton, status].forEach { headerStack.addArrangedSubview($0) }
         header.addSubview(headerStack)
@@ -82,17 +82,17 @@ final class CategoryReviewViewController: UITableViewController {
     private func reloadItems() {
         items = AppStorage.shared.categoryReviewItems()
         let remaining = AppStorage.shared.transactionsForCategoryAudit().count
-        summary.text = items.isEmpty ? (remaining > 0 ? "Проверим распределение" : "Всё разобрано") : "Ждут вашего решения: \(items.count)"
+        summary.text = items.isEmpty ? (remaining > 0 ? L10n.text("Проверим распределение") : L10n.text("Всё разобрано")) : L10n.text("Ждут вашего решения: {0}", String(describing: items.count))
         if runID == nil {
-            scanButton.configuration?.title = "Проверить с AI"
+            scanButton.configuration?.title = L10n.text("Проверить с AI")
             scanButton.configuration?.showsActivityIndicator = false
             scanButton.isEnabled = remaining > 0
             if status.text == nil {
-                status.text = remaining > 0 ? "AI ещё не проверил \(remaining) операций. Полученные предложения и ваши решения сохраняются." : "Все текущие операции проверены. Новые платежи появятся после импорта."
+                status.text = remaining > 0 ? L10n.text("AI ещё не проверил {0} операций. Полученные предложения и ваши решения сохраняются.", String(describing: remaining)) : L10n.text("Все текущие операции проверены. Новые платежи появятся после импорта.")
             }
         }
         if items.isEmpty {
-            let empty = FinLitEmptyStateView(symbol: "checkmark.shield", title: "Спорных операций пока нет", detail: remaining > 0 ? "Запустите проверку выше: AI найдёт сомнительные категории." : "Ваши решения сохранены.")
+            let empty = FinLitEmptyStateView(symbol: "checkmark.shield", title: L10n.text("Спорных операций пока нет"), detail: remaining > 0 ? L10n.text("Запустите проверку выше: AI найдёт сомнительные категории.") : L10n.text("Ваши решения сохранены."))
             empty.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 250)
             tableView.tableFooterView = empty
         } else { tableView.tableFooterView = nil }
@@ -106,7 +106,7 @@ final class CategoryReviewViewController: UITableViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await AIConsent.request(from: self, reconsider: !AIPrivacyPreferences().isAllowed) else {
-                self.status.text = "AI выключен. Можно подтвердить или исправить категории вручную."
+                self.status.text = L10n.text("AI выключен. Можно подтвердить или исправить категории вручную.")
                 self.sizeHeader()
                 return
             }
@@ -120,9 +120,9 @@ final class CategoryReviewViewController: UITableViewController {
         guard !rows.isEmpty else { return }
         let id = UUID()
         runID = id
-        scanButton.configuration?.title = "Остановить проверку"
+        scanButton.configuration?.title = L10n.text("Остановить проверку")
         scanButton.configuration?.showsActivityIndicator = true
-        status.text = "AI проверяет категории · 0 из \(rows.count)"
+        status.text = L10n.text("AI проверяет категории · 0 из {0}", String(describing: rows.count))
         sizeHeader()
         task = Task { [weak self] in
             do {
@@ -133,19 +133,19 @@ final class CategoryReviewViewController: UITableViewController {
                     self.reloadItems()
                 }, progress: { [weak self] checked, total in
                     guard let self, self.runID == id else { return }
-                    self.status.text = "AI проверил \(checked) из \(total) операций"
+                    self.status.text = L10n.text("AI проверил {0} из {1} операций", String(describing: checked), String(describing: total))
                     self.sizeHeader()
                 })
                 guard let self, self.runID == id, !Task.isCancelled else { return }
                 self.runID = nil
                 let incomplete = rows.count - result.checkedCount
-                self.status.text = result.errorMessage.map { "Проверено \(result.checkedCount) из \(rows.count). \($0) Нажмите проверку ещё раз, чтобы продолжить." }
-                    ?? (incomplete > 0 ? "Проверено \(result.checkedCount) из \(rows.count). Для остальных не получен полный ответ; их можно проверить повторно." : "Проверено \(result.checkedCount) операций. AI ничего не меняет без вашего решения.")
+                self.status.text = result.errorMessage.map { L10n.text("Проверено {0} из {1}. {2} Нажмите проверку ещё раз, чтобы продолжить.", String(describing: result.checkedCount), String(describing: rows.count), String(describing: $0)) }
+                    ?? (incomplete > 0 ? L10n.text("Проверено {0} из {1}. Для остальных не получен полный ответ; их можно проверить повторно.", String(describing: result.checkedCount), String(describing: rows.count)) : L10n.text("Проверено {0} операций. AI ничего не меняет без вашего решения.", String(describing: result.checkedCount)))
                 self.reloadItems()
             } catch {
                 guard let self, self.runID == id, !Task.isCancelled else { return }
                 self.runID = nil
-                self.status.text = "Проверку не удалось завершить: \(error.localizedDescription) Можно повторить."
+                self.status.text = L10n.text("Проверку не удалось завершить: {0} Можно повторить.", String(describing: error.localizedDescription))
                 self.reloadItems()
             }
         }
@@ -155,17 +155,17 @@ final class CategoryReviewViewController: UITableViewController {
         task?.cancel()
         task = nil
         runID = nil
-        status.text = "Проверка остановлена. Уже полученные предложения сохранены."
+        status.text = L10n.text("Проверка остановлена. Уже полученные предложения сохранены.")
         reloadItems()
     }
 
     private func resolve(_ item: CategoryReviewItem, category: TxCategory) {
         let saved = AppStorage.shared.resolveCategoryReview(item.snapshot, category: category, remember: rememberChoices[item.id] ?? true)
         if saved == nil {
-            present(FinLitNoticeSheet(title: "Операция уже изменилась", detail: "Список обновлён. Проверьте актуальные данные перед выбором категории."), animated: true)
+            present(FinLitNoticeSheet(title: L10n.text("Операция уже изменилась"), detail: L10n.text("Список обновлён. Проверьте актуальные данные перед выбором категории.")), animated: true)
         } else {
             UISelectionFeedbackGenerator().selectionChanged()
-            UIAccessibility.post(notification: .announcement, argument: "Категория подтверждена: \(category.rawValue)")
+            UIAccessibility.post(notification: .announcement, argument: L10n.text("Категория подтверждена: {0}", String(describing: category.displayName)))
         }
         reloadItems()
     }
@@ -224,32 +224,32 @@ private final class CategoryReviewCell: UITableViewCell {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let row = item.transaction
         let date = DateFormatter(); date.dateFormat = "dd.MM.yyyy"
-        stack.addArrangedSubview(label(item.fromAI ? "ПРЕДЛОЖЕНИЕ AI" : "НУЖНО УТОЧНИТЬ", size: 11, weight: .bold, color: FinLitTheme.accent))
+        stack.addArrangedSubview(label(item.fromAI ? L10n.text("ПРЕДЛОЖЕНИЕ AI") : L10n.text("НУЖНО УТОЧНИТЬ"), size: 11, weight: .bold, color: FinLitTheme.accent))
         stack.addArrangedSubview(label(row.merchant, size: 19, weight: .semibold))
         stack.addArrangedSubview(label("\(date.string(from: row.date)) · \(AssistantAnalytics.money(row.amount))", color: .secondaryLabel))
-        stack.addArrangedSubview(label("Сейчас: \(row.category.rawValue)", weight: .medium))
+        stack.addArrangedSubview(label(L10n.text("Сейчас: {0}", String(describing: row.category.displayName)), weight: .medium))
         if let proposed = item.suggestedCategory, proposed != row.category {
-            stack.addArrangedSubview(label("Предложение: \(proposed.rawValue)", weight: .semibold, color: FinLitTheme.accent))
+            stack.addArrangedSubview(label(L10n.text("Предложение: {0}", String(describing: proposed.displayName)), weight: .semibold, color: FinLitTheme.accent))
         }
-        stack.addArrangedSubview(label(OpenRouterCategorizer.assistantDisplayText(item.reason), color: .secondaryLabel))
+        stack.addArrangedSubview(label(OpenRouterCategorizer.assistantDisplayText(L10n.text(item.reason)), color: .secondaryLabel))
         let toggle = UISwitch()
         toggle.isOn = remember
         toggle.onTintColor = FinLitTheme.buttonFill
-        toggle.accessibilityLabel = "Запомнить категорию для похожих платежей"
+        toggle.accessibilityLabel = L10n.text("Запомнить категорию для похожих платежей")
         toggle.addAction(UIAction { [weak toggle] _ in if let toggle { onRemember(toggle.isOn) } }, for: .valueChanged)
-        let rememberRow = UIStackView(arrangedSubviews: [label("Запомнить для похожих платежей", size: 13), toggle])
+        let rememberRow = UIStackView(arrangedSubviews: [label(L10n.text("Запомнить для похожих платежей"), size: 13), toggle])
         rememberRow.alignment = .center
         rememberRow.spacing = 12
         stack.addArrangedSubview(rememberRow)
         if let proposed = item.suggestedCategory, proposed != row.category {
             let accept = UIButton(type: .system)
-            FinLitTheme.configurePrimaryButton(accept, title: "Принять · \(proposed.rawValue)", image: "checkmark")
+            FinLitTheme.configurePrimaryButton(accept, title: L10n.text("Принять · {0}", String(describing: proposed.displayName)), image: "checkmark")
             accept.addAction(UIAction { _ in onChoose(proposed) }, for: .touchUpInside)
             stack.addArrangedSubview(accept)
         }
         let keep = UIButton(type: .system)
         var keepConfig = UIButton.Configuration.gray()
-        keepConfig.title = "Оставить · \(row.category.rawValue)"
+        keepConfig.title = L10n.text("Оставить · {0}", String(describing: row.category.displayName))
         keepConfig.titleLineBreakMode = .byWordWrapping
         keepConfig.image = UIImage(systemName: "checkmark.circle")
         keepConfig.imagePadding = 8
@@ -260,7 +260,7 @@ private final class CategoryReviewCell: UITableViewCell {
         stack.addArrangedSubview(keep)
         let choose = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
-        config.title = "Выбрать другую категорию"
+        config.title = L10n.text("Выбрать другую категорию")
         config.titleLineBreakMode = .byWordWrapping
         config.image = UIImage(systemName: "slider.horizontal.3")
         config.imagePadding = 8
@@ -268,8 +268,8 @@ private final class CategoryReviewCell: UITableViewCell {
         config.contentInsets = .init(top: 12, leading: 8, bottom: 12, trailing: 8)
         choose.configuration = config
         choose.showsMenuAsPrimaryAction = true
-        choose.menu = UIMenu(title: "Категория операции", children: TxCategory.allCases.map { category in
-            UIAction(title: category.rawValue, image: UIImage(systemName: category.icon), state: category == row.category ? .on : .off) { _ in onChoose(category) }
+        choose.menu = UIMenu(title: L10n.text("Категория операции"), children: TxCategory.allCases.map { category in
+            UIAction(title: category.displayName, image: UIImage(systemName: category.icon), state: category == row.category ? .on : .off) { _ in onChoose(category) }
         })
         stack.addArrangedSubview(choose)
     }

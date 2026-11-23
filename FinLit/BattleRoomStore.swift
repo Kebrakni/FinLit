@@ -14,8 +14,8 @@ final class BattleRoomStore {
             do {
                 let room = try transaction.getDocument(ref)
                 let oldRoom = try previous.map { try transaction.getDocument($0) }
-                if creating && room.exists { throw Self.failure("Код комнаты уже занят. Попробуйте создать комнату ещё раз.") }
-                if !creating && !room.exists { throw Self.failure("Комната с таким кодом не найдена.") }
+                if creating && room.exists { throw Self.failure(L10n.text("Код комнаты уже занят. Попробуйте создать комнату ещё раз.")) }
+                if !creating && !room.exists { throw Self.failure(L10n.text("Комната с таким кодом не найдена.")) }
                 let members = room.data()?["members"] as? [[String: Any]] ?? []
                 let next = BattleMembership.upsert(member, into: members)
                 if creating {
@@ -41,7 +41,7 @@ final class BattleRoomStore {
                 guard room.exists, let members = room.data()?["members"] as? [[String: Any]],
                       let uid = member["uid"] as? String,
                       let old = members.first(where: { $0["uid"] as? String == uid }) else {
-                    throw Self.failure("Вы больше не состоите в этой комнате. Войдите по коду повторно.")
+                    throw Self.failure(L10n.text("Вы больше не состоите в этой комнате. Войдите по коду повторно."))
                 }
                 if let oldTime = old["updatedAt"] as? Timestamp, let newTime = member["updatedAt"] as? Timestamp,
                    oldTime.dateValue() > newTime.dateValue() { return nil }

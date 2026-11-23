@@ -11,6 +11,7 @@ function api(fetch) {
     require(name) {
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only" }) };
+      if (name === "./localization") return require("../functions/localization");
       if (name === "./category-policy") return require("../functions/category-policy");
       if (name === "./category-audit") return require("../functions/category-audit");
       if (name === "./chat-quota") return { getService: () => ({ user: async () => "test-user", fetchFor: () => fetch }) };
@@ -25,6 +26,42 @@ function api(fetch) {
   };
 }
 const row = (id, amount = -100) => ({ id, amount, merchant: "Test", details: "Purchases Test", currentCategory: "shopping" });
+
+test("Chat language is scoped per request, including retries and complete fallbacks", async () => {
+  const payloads = [];
+  const call = api(async (_, options) => {
+    payloads.push(JSON.parse(options.body));
+    return { ok: true, json: async () => ({ choices: [{ message: { tool_calls: [{ function: {
+      name: "review_transactions", arguments: JSON.stringify({ reply: "Here are the results:", changes: [] }),
+    } }] } }] }) };
+  });
+  const response = await call([row("a")], "/api/chat", { message: "Review this payment" }, {
+    "x-tengely-ai-consent": "2026-11-17-v1", "x-tengely-language": "en",
+  });
+  assert.equal(response.code, 200);
+  assert.equal(payloads.length, 2);
+  assert.match(payloads[0].messages[1].content, /Reply and write all change reasons in English/);
+  assert.match(payloads[1].messages[1].content, /Reply and write all change reasons in English/);
+  assert.match(response.body.reply, /Could not produce a complete reply/);
+  await call([row("a")], "/api/chat", { message: "Проверь платёж" });
+  assert.match(payloads[2].messages[1].content, /Reply and write all change reasons in Russian/);
+});
+
+test("English audit localizes deterministic evidence and consent errors", async () => {
+  const call = api(async (_, options) => {
+    assert.match(JSON.parse(options.body).messages[1].content, /Response language: English/);
+    return { ok: true, json: async () => ({ choices: [{ message: { tool_calls: [{ function: {
+      name: "audit_categories", arguments: JSON.stringify({ assessments: [{ id: "a", category: "shopping", needsReview: false, reason: "Merchant" }] }),
+    } }] } }] }) };
+  });
+  const headers = { "x-tengely-ai-consent": "2026-11-17-v1", "x-tengely-language": "en" };
+  const response = await call([{ ...row("a"), details: "Purchases SUBSCR" }], "/api/category-audit", {}, headers);
+  assert.equal(response.body.assessments[0].reason, "Explicit subscription marker");
+  assert.equal(response.body.assessments[0].category, "subscriptions");
+  const denied = await call([row("a")], "/api/chat", {}, { "x-tengely-language": "en" });
+  assert.equal(denied.code, 403);
+  assert.match(denied.body.error, /^AI processing requires/);
+});
 
 test("Every financial AI route refuses missing/outdated consent before model calls", async () => {
   const call = api(() => { throw Error("must not contact AI"); });

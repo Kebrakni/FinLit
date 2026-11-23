@@ -47,6 +47,8 @@ nonisolated enum TxCategory: String, CaseIterable, Hashable, Codable, Sendable {
     case internalTransfers = "Внутренние переводы"
     case other           = "Другое"
 
+    var displayName: String { L10n.text(rawValue) }
+
     /// Stable, language-independent value used in the AI API contract.
     /// Keep `rawValue` in Russian because it is part of the app's persisted/UI data.
     var aiCode: String {

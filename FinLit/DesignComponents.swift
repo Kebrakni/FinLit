@@ -4,7 +4,7 @@ import UIKit
 enum FinLitDisplay {
     static func money(_ value: Double) -> String {
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "ru_KZ")
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 2
         return "\(formatter.string(from: NSNumber(value: value)) ?? "0") ₸"
@@ -97,7 +97,7 @@ class FinLitFormSheet: UIViewController {
         closeConfig.baseForegroundColor = .secondaryLabel
         closeConfig.cornerStyle = .capsule
         close.configuration = closeConfig
-        close.accessibilityLabel = "Закрыть"
+        close.accessibilityLabel = L10n.text("Закрыть")
         close.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
 
         scrollView.keyboardDismissMode = .interactive
@@ -251,10 +251,10 @@ final class StatementImportSheet: FinLitFormSheet {
 
     init() {
         super.init(
-            title: "Выписка для Tengely",
-            detail: "Поддерживается только оригинальная PDF-выписка Kaspi Gold на английском языке, с колонками Date, Amount, Transaction и Details.",
+            title: L10n.text("Выписка для Tengely"),
+            detail: L10n.text("Нужна оригинальная PDF-выписка по карте в тенге: язык English, заголовок Balance statement, колонки Date, Amount, Transaction и Details. Сейчас поддерживается один шаблон документа."),
             symbol: "doc.text.magnifyingglass",
-            action: "Выбрать PDF",
+            action: L10n.text("Выбрать PDF"),
             actionSymbol: "folder"
         )
     }
@@ -263,10 +263,10 @@ final class StatementImportSheet: FinLitFormSheet {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        addNote("В банковском приложении откройте карту → «Выписка» и выберите нужный период.", symbol: "1.circle.fill")
-        addNote("При формировании выписки выберите English / Английский.", symbol: "2.circle.fill")
-        addNote("Сохраните PDF через «Поделиться» → «Сохранить в Файлы», затем выберите его здесь.", symbol: "3.circle.fill")
-        addNote("Выписки других банков, фото и скриншоты пока не поддерживаются.")
+        addNote(L10n.text("В банковском приложении откройте «Мой Банк» → карту в тенге → «Выписка» и выберите период."), symbol: "1.circle.fill")
+        addNote(L10n.text("При формировании выписки выберите English / Английский."), symbol: "2.circle.fill")
+        addNote(L10n.text("Сохраните PDF через «Поделиться» → «Сохранить в Файлы», затем выберите его здесь."), symbol: "3.circle.fill")
+        addNote(L10n.text("Другие шаблоны выписок, фото и скриншоты пока не поддерживаются."))
     }
 
     override func submit() {
@@ -286,9 +286,9 @@ final class GoalEditorSheet: FinLitFormSheet {
     init(goal: Goal, onSave: @escaping (Goal) -> Void) {
         self.goal = goal
         self.onSave = onSave
-        nameField = FinLitFormField(title: "На что копим", placeholder: "Например, путешествие", value: goal.title)
-        amountField = FinLitFormField(title: "Стоимость цели · ₸", placeholder: "350 000", value: String(format: "%.2f", goal.targetAmount).replacingOccurrences(of: ".00", with: ""), amount: true)
-        super.init(title: "Ближе к мечте", detail: "Назовите цель и сумму. Каждый шаг к ней будет виден на главном экране.", symbol: "target", action: "Сохранить цель")
+        nameField = FinLitFormField(title: L10n.text("На что копим"), placeholder: L10n.text("Например, путешествие"), value: goal.title)
+        amountField = FinLitFormField(title: L10n.text("Стоимость цели · ₸"), placeholder: "350 000", value: String(format: "%.2f", goal.targetAmount).replacingOccurrences(of: ".00", with: ""), amount: true)
+        super.init(title: L10n.text("Ближе к мечте"), detail: L10n.text("Назовите цель и сумму. Каждый шаг к ней будет виден на главном экране."), symbol: "target", action: L10n.text("Сохранить цель"))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -298,7 +298,7 @@ final class GoalEditorSheet: FinLitFormSheet {
         contentStack.addArrangedSubview(nameField)
         contentStack.addArrangedSubview(amountField)
         let dateTitle = UILabel()
-        dateTitle.text = "Накопить к дате"
+        dateTitle.text = L10n.text("Накопить к дате")
         dateTitle.font = .systemFont(ofSize: 16, weight: .semibold)
         deadlineSwitch.isOn = goal.deadline != nil
         deadlineSwitch.onTintColor = FinLitTheme.accent
@@ -312,18 +312,18 @@ final class GoalEditorSheet: FinLitFormSheet {
         contentStack.addArrangedSubview(row)
         datePicker.datePickerMode = .date
         datePicker.preferredDatePickerStyle = .inline
-        datePicker.locale = Locale(identifier: "ru_RU")
+        datePicker.locale = L10n.locale
         datePicker.date = goal.deadline ?? Calendar.current.date(byAdding: .month, value: 3, to: Date()) ?? Date()
         datePicker.isHidden = !deadlineSwitch.isOn
         contentStack.addArrangedSubview(datePicker)
-        addNote("Уже накопленные деньги сохранятся, даже если изменить название или стоимость цели.", symbol: "lock.shield")
+        addNote(L10n.text("Уже накопленные деньги сохранятся, даже если изменить название или стоимость цели."), symbol: "lock.shield")
     }
 
     override func submit() {
         let name = (nameField.input.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { showError("Дайте цели название."); return }
+        guard !name.isEmpty else { showError(L10n.text("Дайте цели название.")); return }
         guard let amount = FinLitDisplay.amount(amountField.input.text) else {
-            showError("Введите стоимость цели больше нуля."); return
+            showError(L10n.text("Введите стоимость цели больше нуля.")); return
         }
         goal.title = name
         goal.targetAmount = amount
@@ -337,7 +337,7 @@ final class SavingsContributionSheet: FinLitFormSheet {
     private let goal: Goal
     private let saved: Double
     private let onSave: (Double) -> Void
-    private let amountField = FinLitFormField(title: "Сумма накопления · ₸", placeholder: "0", amount: true)
+    private let amountField = FinLitFormField(title: L10n.text("Сумма накопления · ₸"), placeholder: "0", amount: true)
     private let previewTitle = UILabel()
     private let previewDetail = UILabel()
     private let progress = UIProgressView(progressViewStyle: .default)
@@ -346,7 +346,7 @@ final class SavingsContributionSheet: FinLitFormSheet {
         self.goal = goal
         self.saved = saved
         self.onSave = onSave
-        super.init(title: "Ещё один шаг", detail: "Добавьте деньги, которые отложили на «\(goal.title)».", symbol: "plus.circle.fill", action: "Добавить накопление", actionSymbol: "plus")
+        super.init(title: L10n.text("Ещё один шаг"), detail: L10n.text("Добавьте деньги, которые отложили на «{0}».", String(describing: goal.title)), symbol: "plus.circle.fill", action: L10n.text("Добавить накопление"), actionSymbol: "plus")
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -404,7 +404,7 @@ final class SavingsContributionSheet: FinLitFormSheet {
             stack.bottomAnchor.constraint(equalTo: preview.bottomAnchor, constant: -20)
         ])
         contentStack.addArrangedSubview(preview)
-        addNote("Для наличных и других накоплений вне выписки. Деньги, уже учтённые из выписки, добавлять повторно не нужно.", symbol: "banknote")
+        addNote(L10n.text("Для наличных и других накоплений вне выписки. Деньги, уже учтённые из выписки, добавлять повторно не нужно."), symbol: "banknote")
         updatePreview()
     }
 
@@ -414,15 +414,15 @@ final class SavingsContributionSheet: FinLitFormSheet {
         let fraction = min(max(total / max(goal.targetAmount, 1), 0), 1)
         previewTitle.text = FinLitDisplay.money(total)
         progress.setProgress(Float(fraction), animated: !UIAccessibility.isReduceMotionEnabled)
-        previewDetail.text = "\(Int(fraction * 100))% цели · \(total >= goal.targetAmount ? "цель достигнута!" : "осталось \(FinLitDisplay.money(goal.targetAmount - total))")"
+        previewDetail.text = L10n.text("{0}% цели · {1}", String(describing: Int(fraction * 100)), String(describing: total >= goal.targetAmount ? L10n.text("цель достигнута!") : L10n.text("осталось {0}", String(describing: FinLitDisplay.money(goal.targetAmount - total)))))
     }
 
     override func submit() {
         guard let amount = FinLitDisplay.amount(amountField.input.text) else {
-            showError("Введите сумму накопления больше нуля."); return
+            showError(L10n.text("Введите сумму накопления больше нуля.")); return
         }
         guard goal.savedAmount + amount <= Transaction.maximumAmount else {
-            showError("Общая сумма накоплений слишком велика. Проверьте введённую сумму."); return
+            showError(L10n.text("Общая сумма накоплений слишком велика. Проверьте введённую сумму.")); return
         }
         onSave(amount)
         finish()
@@ -456,7 +456,7 @@ final class FinLitInputSheet: FinLitFormSheet {
 
 final class FinLitNoticeSheet: FinLitFormSheet {
     init(title: String, detail: String, symbol: String = "info.circle.fill") {
-        super.init(title: title, detail: detail, symbol: symbol, action: "Понятно")
+        super.init(title: title, detail: detail, symbol: symbol, action: L10n.text("Понятно"))
         sheetPresentationController?.detents = [
             .custom(identifier: .init("notice")) { min(560, $0.maximumDetentValue) }, .large()
         ]
@@ -527,10 +527,10 @@ final class AnalyticsCategoryCell: UITableViewCell {
         icon.image = UIImage(systemName: category.icon)
         icon.tintColor = category.uiColor
         tile.backgroundColor = category.uiColor.withAlphaComponent(0.13)
-        name.text = category.rawValue
+        name.text = category.displayName
         amount.text = FinLitDisplay.money(abs(value))
         let fraction = total > 0 ? abs(value) / total : 0
-        share.text = String(format: "%.0f%% от общей суммы", fraction * 100)
+        share.text = String(format: L10n.text("%.0f%% от общей суммы"), fraction * 100)
         meter.progressTintColor = category.uiColor
         meter.progress = Float(min(max(fraction, 0), 1))
     }

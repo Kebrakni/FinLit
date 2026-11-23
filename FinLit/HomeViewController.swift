@@ -50,15 +50,15 @@ struct HomeGamificationPresentation: Equatable {
     let missions: [HomeMissionPresentation]
     let achievements: [HomeAchievementPresentation]
 
-    static let empty = HomeGamificationPresentation(
+    static var empty: HomeGamificationPresentation { HomeGamificationPresentation(
         level: 1,
-        levelTitle: "Новичок",
+        levelTitle: L10n.text("Новичок"),
         currentXP: 0,
         nextLevelXP: 100,
         weeklyStreak: 0,
         missions: [],
         achievements: []
-    )
+    ) }
 }
 
 final class HomeViewController: UIViewController {
@@ -88,14 +88,14 @@ final class HomeViewController: UIViewController {
     private let journeyView = HomeGoalJourneyView()
     private let levelCard = HomeLevelCardView()
     private let missionsHeader = HomeSectionHeaderView(
-        title: "Миссии недели",
-        subtitle: "Персональные задания по вашей аналитике"
+        title: L10n.text("Миссии недели"),
+        subtitle: L10n.text("Персональные задания по вашей аналитике")
     )
     private let missionsStack = UIStackView()
     private let missionsEmptyView = HomeEmptyMissionsView()
     private let achievementsHeader = HomeSectionHeaderView(
-        title: "Достижения",
-        subtitle: "Открывайте награды за полезные привычки"
+        title: L10n.text("Достижения"),
+        subtitle: L10n.text("Открывайте награды за полезные привычки")
     )
     private let achievementsScrollView = UIScrollView()
     private let achievementsStack = UIStackView()
@@ -105,7 +105,7 @@ final class HomeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Моя цель"
+        title = L10n.text("Моя цель")
         view.backgroundColor = FinLitTheme.background
         setupNav()
         setupUI()
@@ -191,7 +191,7 @@ final class HomeViewController: UIViewController {
         cardView.layer.shadowOffset = CGSize(width: 0, height: 10)
 
         eyebrowLabel.translatesAutoresizingMaskIntoConstraints = false
-        eyebrowLabel.text = "ВАША ФИНАНСОВАЯ ЦЕЛЬ"
+        eyebrowLabel.text = L10n.text("ВАША ФИНАНСОВАЯ ЦЕЛЬ")
         eyebrowLabel.font = FinLitTheme.font(11, weight: .semibold, style: .caption1)
         eyebrowLabel.adjustsFontForContentSizeCategory = true
         eyebrowLabel.textColor = UIColor.white.withAlphaComponent(0.72)
@@ -242,7 +242,7 @@ final class HomeViewController: UIViewController {
 
         addButton.translatesAutoresizingMaskIntoConstraints = false
         var buttonConfiguration = UIButton.Configuration.filled()
-        buttonConfiguration.title = "Добавить накопление"
+        buttonConfiguration.title = L10n.text("Добавить накопление")
         buttonConfiguration.image = UIImage(systemName: "plus")
         buttonConfiguration.imagePadding = 8
         buttonConfiguration.baseBackgroundColor = .white
@@ -364,28 +364,28 @@ final class HomeViewController: UIViewController {
         var displayedGoal = goal
         displayedGoal.savedAmount = combinedSavings
         amountsLabel.text = formatMoney(combinedSavings)
-        savingsBreakdownLabel.text = "из \(formatMoney(goal.targetAmount))\nВыписка · \(formatMoney(statementSavings))    Вручную · \(formatMoney(manualSavings))"
+        savingsBreakdownLabel.text = L10n.text("из {0}\nВыписка · {1}    Вручную · {2}", String(describing: formatMoney(goal.targetAmount)), String(describing: formatMoney(statementSavings)), String(describing: formatMoney(manualSavings)))
 
         let pct = Int(displayedGoal.progress * 100)
         progressView.setProgress(Float(displayedGoal.progress), animated: true)
         progressLabel.text = combinedSavings >= goal.targetAmount
-            ? "Цель достигнута!"
-            : "\(pct)% выполнено · ещё \(formatMoney(goal.targetAmount - combinedSavings))"
+            ? L10n.text("Цель достигнута!")
+            : L10n.text("{0}% выполнено · ещё {1}", String(describing: pct), String(describing: formatMoney(goal.targetAmount - combinedSavings)))
         journeyView.configure(savedAmount: combinedSavings, targetAmount: goal.targetAmount)
 
         if let deadline = goal.deadline {
             let df = DateFormatter()
             df.dateFormat = "dd MMMM yyyy"
-            df.locale = Locale(identifier: "ru_RU")
+            df.locale = L10n.locale
             let days = Calendar.current.dateComponents([.day], from: Date(), to: deadline).day ?? 0
             if days > 0 {
-                deadlineLabel.text = "До \(df.string(from: deadline)) · осталось \(days) дн."
+                deadlineLabel.text = L10n.text("До {0} · осталось {1} дн.", String(describing: df.string(from: deadline)), String(describing: days))
                 deadlineLabel.textColor = days < 14 ? .systemYellow : UIColor.white.withAlphaComponent(0.72)
             } else if days == 0 {
-                deadlineLabel.text = "Дедлайн: сегодня!"
+                deadlineLabel.text = L10n.text("Дедлайн: сегодня!")
                 deadlineLabel.textColor = .systemRed
             } else {
-                deadlineLabel.text = "Дедлайн прошёл \(df.string(from: deadline))"
+                deadlineLabel.text = L10n.text("Дедлайн прошёл {0}", String(describing: df.string(from: deadline)))
                 deadlineLabel.textColor = .systemRed
             }
             deadlineLabel.isHidden = false
@@ -462,8 +462,8 @@ final class HomeViewController: UIViewController {
         let missions = snapshot.missions.map { mission in
             HomeMissionPresentation(
                 id: mission.id,
-                title: mission.title,
-                detail: mission.detail,
+                title: mission.localizedTitle,
+                detail: mission.localizedDetail,
                 progress: mission.progress,
                 progressText: missionProgressText(mission),
                 xpReward: mission.xpReward,
@@ -591,15 +591,15 @@ final class HomeViewController: UIViewController {
     private func missionProgressText(_ mission: WeeklyMission) -> String {
         switch mission.kind {
         case .saveAmount:
-            return "\(formatMoney(mission.current)) из \(formatMoney(mission.target))"
+            return L10n.text("{0} из {1}", String(describing: formatMoney(mission.current)), String(describing: formatMoney(mission.target)))
         case .reviewOperations:
-            return "\(Int(mission.current)) из \(Int(mission.target)) операций"
+            return L10n.text("{0} из {1} операций", String(describing: Int(mission.current)), String(describing: Int(mission.target)))
         case .categoryBudget:
             return mission.isCompleted
-                ? "Лимит соблюдён"
-                : "\(Int(mission.progress * 100))% недели по плану"
+                ? L10n.text("Лимит соблюдён")
+                : L10n.text("{0}% недели по плану", String(describing: Int(mission.progress * 100)))
         case .noSpendDays:
-            return "\(Int(mission.current)) из \(Int(mission.target)) дней"
+            return L10n.text("{0} из {1} дней", String(describing: Int(mission.current)), String(describing: Int(mission.target)))
         }
     }
 
@@ -661,6 +661,7 @@ final class HomeViewController: UIViewController {
 
     private func formatMoney(_ value: Double) -> String {
         let f = NumberFormatter()
+        f.locale = L10n.locale
         f.numberStyle = .decimal
         f.maximumFractionDigits = 2
         return "\(f.string(from: NSNumber(value: value)) ?? "\(Int(value))") ₸"
@@ -668,12 +669,12 @@ final class HomeViewController: UIViewController {
 }
 
 private extension HomeAchievementPresentation {
-    static let defaults: [HomeAchievementPresentation] = [
-        .init(id: "first_statement", title: "Первая выписка", detail: "Загрузить первую банковскую выписку", symbol: "doc.text.fill", color: FinLitTheme.accent, xpReward: 25, isUnlocked: false, unlockedAt: nil),
-        .init(id: "goal_25", title: "Первый рубеж", detail: "Накопить 25% финансовой цели", symbol: "flag.fill", color: .systemOrange, xpReward: 35, isUnlocked: false, unlockedAt: nil),
-        .init(id: "positive_balance", title: "В плюсе", detail: "Получить положительный баланс по выпискам", symbol: "chart.line.uptrend.xyaxis", color: .systemGreen, xpReward: 40, isUnlocked: false, unlockedAt: nil),
-        .init(id: "streak_4", title: "Месяц дисциплины", detail: "Поддерживать активность четыре недели подряд", symbol: "flame.fill", color: .systemPink, xpReward: 80, isUnlocked: false, unlockedAt: nil),
-    ]
+    static var defaults: [HomeAchievementPresentation] { [
+        .init(id: "first_statement", title: L10n.text("Первая выписка"), detail: L10n.text("Загрузить первую банковскую выписку"), symbol: "doc.text.fill", color: FinLitTheme.accent, xpReward: 25, isUnlocked: false, unlockedAt: nil),
+        .init(id: "goal_25", title: L10n.text("Первый рубеж"), detail: L10n.text("Накопить 25% финансовой цели"), symbol: "flag.fill", color: .systemOrange, xpReward: 35, isUnlocked: false, unlockedAt: nil),
+        .init(id: "positive_balance", title: L10n.text("В плюсе"), detail: L10n.text("Получить положительный баланс по выпискам"), symbol: "chart.line.uptrend.xyaxis", color: .systemGreen, xpReward: 40, isUnlocked: false, unlockedAt: nil),
+        .init(id: "streak_4", title: L10n.text("Месяц дисциплины"), detail: L10n.text("Поддерживать активность четыре недели подряд"), symbol: "flame.fill", color: .systemPink, xpReward: 80, isUnlocked: false, unlockedAt: nil),
+    ] }
 }
 
 final class HomeSectionHeaderView: UIView {
@@ -716,7 +717,7 @@ final class HomeGoalJourneyView: UIView {
     private var connectors: [UIView] = []
     private var milestoneLabels: [UILabel] = []
     private let thresholds: [Double] = [0.25, 0.50, 0.75, 1]
-    private let milestoneNames = ["Первый рубеж", "Половина", "Почти у цели", "Цель"]
+    private let milestoneNames = [L10n.text("Первый рубеж"), L10n.text("Половина"), L10n.text("Почти у цели"), L10n.text("Цель")]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -729,7 +730,7 @@ final class HomeGoalJourneyView: UIView {
         FinLitTheme.styleCard(self, radius: 22)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "Путь к цели"
+        titleLabel.text = L10n.text("Путь к цели")
         titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -815,9 +816,9 @@ final class HomeGoalJourneyView: UIView {
         if let nextIndex = thresholds.firstIndex(where: { $0 > value }) {
             let nextAmount = safeTarget * thresholds[nextIndex]
             let remaining = max(nextAmount - safeSaved, 0)
-            subtitleLabel.text = "До этапа «\(milestoneNames[nextIndex])» осталось \(Self.moneyText(remaining))"
+            subtitleLabel.text = L10n.text("До этапа «{0}» осталось {1}", String(describing: milestoneNames[nextIndex]), String(describing: Self.moneyText(remaining)))
         } else {
-            subtitleLabel.text = "Цель достигнута — путь завершён"
+            subtitleLabel.text = L10n.text("Цель достигнута — путь завершён")
         }
 
         for index in nodes.indices {
@@ -854,6 +855,7 @@ final class HomeGoalJourneyView: UIView {
 
     private static func moneyText(_ value: Double) -> String {
         let formatter = NumberFormatter()
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 2
         let number = formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
@@ -948,9 +950,9 @@ final class HomeLevelCardView: UIView {
     }
 
     func configure(level: Int, title: String, currentXP: Int, nextLevelXP: Int, streak: Int) {
-        levelLabel.text = "УРОВЕНЬ \(max(level, 1))"
+        levelLabel.text = L10n.text("УРОВЕНЬ {0}", String(describing: max(level, 1)))
         titleLabel.text = title
-        streakLabel.text = "  🔥 \(max(streak, 0)) нед.  "
+        streakLabel.text = L10n.text("  🔥 {0} нед.  ", String(describing: max(streak, 0)))
         let target = max(nextLevelXP, 1)
         progressView.setProgress(Float(min(max(Double(currentXP) / Double(target), 0), 1)), animated: true)
         xpLabel.text = "\(max(currentXP, 0)) / \(target) XP"
@@ -1051,7 +1053,7 @@ final class HomeMissionCardView: UIView {
         detailLabel.text = mission.detail
         progressView.progressTintColor = color
         progressView.setProgress(Float(min(max(mission.progress, 0), 1)), animated: true)
-        progressLabel.text = mission.isCompleted ? "Выполнено" : mission.progressText
+        progressLabel.text = mission.isCompleted ? L10n.text("Выполнено") : mission.progressText
         progressLabel.textColor = mission.isCompleted ? .systemGreen : .secondaryLabel
         rewardLabel.text = " +\(mission.xpReward) XP "
         rewardLabel.textColor = color
@@ -1070,7 +1072,7 @@ final class HomeEmptyMissionsView: UIView {
         icon.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         icon.tintColor = FinLitTheme.accent
-        label.text = "Загрузите выписку — AI подготовит задания на эту неделю"
+        label.text = L10n.text("Загрузите выписку — AI подготовит задания на эту неделю")
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textColor = .secondaryLabel
         label.numberOfLines = 2
@@ -1167,7 +1169,7 @@ final class HomeAchievementBadgeView: UIView {
         lockView.isHidden = achievement.isUnlocked
         alpha = achievement.isUnlocked ? 1 : 0.72
         accessibilityLabel = achievement.title
-        accessibilityValue = achievement.isUnlocked ? "Получено" : "Не получено"
+        accessibilityValue = achievement.isUnlocked ? L10n.text("Получено") : L10n.text("Не получено")
     }
 }
 
@@ -1221,7 +1223,7 @@ final class HomeAchievementDetailViewController: UIViewController {
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
 
-        stateLabel.text = achievement.isUnlocked ? "  ПОЛУЧЕНО  " : "  ЕЩЁ НЕ ПОЛУЧЕНО  "
+        stateLabel.text = achievement.isUnlocked ? L10n.text("  ПОЛУЧЕНО  ") : L10n.text("  ЕЩЁ НЕ ПОЛУЧЕНО  ")
         stateLabel.font = .systemFont(ofSize: 11, weight: .bold)
         stateLabel.textAlignment = .center
         stateLabel.textColor = achievement.isUnlocked ? .systemGreen : .secondaryLabel
@@ -1233,24 +1235,24 @@ final class HomeAchievementDetailViewController: UIViewController {
         stateLabel.clipsToBounds = true
 
         FinLitTheme.styleCard(descriptionCard, radius: 20)
-        descriptionTitle.text = achievement.isUnlocked ? "Выполненное условие" : "Как получить"
+        descriptionTitle.text = achievement.isUnlocked ? L10n.text("Выполненное условие") : L10n.text("Как получить")
         descriptionTitle.font = .systemFont(ofSize: 13, weight: .bold)
         descriptionTitle.textColor = .secondaryLabel
         descriptionLabel.text = achievement.detail
         descriptionLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         descriptionLabel.numberOfLines = 0
-        rewardLabel.text = "+\(achievement.xpReward) XP за достижение"
+        rewardLabel.text = L10n.text("+{0} XP за достижение", String(describing: achievement.xpReward))
         rewardLabel.font = .systemFont(ofSize: 14, weight: .bold)
         rewardLabel.textColor = achievement.color
 
         if let unlockedAt = achievement.unlockedAt {
             let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "ru_RU")
+            formatter.locale = L10n.locale
             formatter.dateStyle = .long
             formatter.timeStyle = .none
-            dateLabel.text = "Получено: \(formatter.string(from: unlockedAt))"
+            dateLabel.text = L10n.text("Получено: {0}", String(describing: formatter.string(from: unlockedAt)))
         } else {
-            dateLabel.text = "Выполни условие — дата появится здесь"
+            dateLabel.text = L10n.text("Выполни условие — дата появится здесь")
         }
         dateLabel.font = .systemFont(ofSize: 14, weight: .medium)
         dateLabel.textColor = .secondaryLabel

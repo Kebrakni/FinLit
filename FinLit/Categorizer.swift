@@ -18,28 +18,28 @@ nonisolated final class Categorizer {
         let text = (merchant + " " + details).lowercased()
         let bankType = details.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if containsAny(text, ["foreign exchange difference", "курсовая разница"]) {
-            return Evidence(category: .other, reason: "Курсовая корректировка, а не покупка")
+            return Evidence(category: .other, reason: L10n.text("Курсовая корректировка, а не покупка"))
         }
         if matches(bankType, #"^(withdrawals|снятие)\b"#) {
-            return Evidence(category: .cashWithdrawals, reason: "Банк указал снятие наличных")
+            return Evidence(category: .cashWithdrawals, reason: L10n.text("Банк указал снятие наличных"))
         }
         let atmDeposit = matches(bankType, #"^(replenishment|пополнение)\b"#)
             && containsAny(text, ["at kaspi atm", "in the kaspi terminal"])
         if atmDeposit || containsAny(text, ["kaspi deposit", "пополнение депозита", "депозит", "from my current account kaspi pay"]) {
-            return Evidence(category: .internalTransfers, reason: "Перемещение денег между собственными счетами или внесение наличных")
+            return Evidence(category: .internalTransfers, reason: L10n.text("Перемещение денег между собственными счетами или внесение наличных"))
         }
         if containsAny(text, ["kaspi red", "kaspi credit"]) {
-            return Evidence(category: .loans, reason: "Платёж по кредиту или рассрочке")
+            return Evidence(category: .loans, reason: L10n.text("Платёж по кредиту или рассрочке"))
         }
         if matches(bankType, #"^(transfers|replenishment|перевод|пополнение)\b"#) {
-            return Evidence(category: .transfers, reason: "Банк указал перевод или пополнение")
+            return Evidence(category: .transfers, reason: L10n.text("Банк указал перевод или пополнение"))
         }
         if matches(text, #"(?:^|[^\p{L}\p{N}])(?:subcr|subscr|subscription|subscriptions|recurring)(?=$|[^\p{L}])|подписк|автопродлен"#) {
-            return Evidence(category: .subscriptions, reason: "В описании есть явная пометка подписки: SUBCR/SUBSCR/subscription/recurring")
+            return Evidence(category: .subscriptions, reason: L10n.text("В описании есть явная пометка подписки: SUBCR/SUBSCR/subscription/recurring"))
         }
         let normalized = text.replacingOccurrences(of: #"[^\p{L}\p{N}]+"#, with: " ", options: .regularExpression)
         if matches(normalized, #"(?:^|\s)(?:dodo\s*pizza|додо\s*пицц[аы])(?:$|\s)"#) {
-            return Evidence(category: .cafes, reason: "Dodo Pizza / Додо Пицца — заказ готовой еды")
+            return Evidence(category: .cafes, reason: L10n.text("Dodo Pizza / Додо Пицца — заказ готовой еды"))
         }
         return nil
     }

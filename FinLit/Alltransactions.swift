@@ -9,14 +9,14 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
 
         var title: String {
             switch self {
-            case .all:           return "Все"
-            case .income:        return "Доходы"
-            case .expense:       return "Расходы"
-            case .purchases:     return "Покупки"
-            case .transfers:     return "Переводы"
-            case .replenishment: return "Пополнения"
-            case .withdrawals:   return "Снятия"
-            case .others:        return "Другое"
+            case .all:           return L10n.text("Все")
+            case .income:        return L10n.text("Доходы")
+            case .expense:       return L10n.text("Расходы")
+            case .purchases:     return L10n.text("Покупки")
+            case .transfers:     return L10n.text("Переводы")
+            case .replenishment: return L10n.text("Пополнения")
+            case .withdrawals:   return L10n.text("Снятия")
+            case .others:        return L10n.text("Другое")
             }
         }
     }
@@ -36,7 +36,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
 
     private lazy var dateFormatter: DateFormatter = {
         let df = DateFormatter()
-        df.locale = Locale(identifier: "ru_RU")
+        df.locale = L10n.locale
         df.dateFormat = "dd.MM.yyyy"
         return df
     }()
@@ -54,7 +54,7 @@ final class AllTransactionsViewController: UIViewController, UITableViewDataSour
         self.all = transactions.sorted { $0.date > $1.date }
         self.filtered = self.all
         super.init(nibName: nil, bundle: nil)
-        title = "Все операции"
+        title = L10n.text("Все операции")
     }
 
     required init?(coder: NSCoder) { fatalError() }

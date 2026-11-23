@@ -21,9 +21,9 @@ final class AIConsentViewController: FinLitFormSheet, UIAdaptivePresentationCont
 
     init(completion: @escaping (Bool) -> Void) {
         self.completion = completion
-        super.init(title: "Разрешить обработку с AI?",
-                   detail: "Вы сами выбираете, отправлять ли данные внешним AI-сервисам. Без разрешения выписка будет обработана на iPhone локальными правилами.",
-                   symbol: "hand.raised.fill", action: "Разрешить AI", actionSymbol: "sparkles")
+        super.init(title: L10n.text("Разрешить обработку с AI?"),
+                   detail: L10n.text("Вы сами выбираете, отправлять ли данные внешним AI-сервисам. Без разрешения выписка будет обработана на iPhone локальными правилами."),
+                   symbol: "hand.raised.fill", action: L10n.text("Разрешить AI"), actionSymbol: "sparkles")
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -31,13 +31,13 @@ final class AIConsentViewController: FinLitFormSheet, UIAdaptivePresentationCont
     override func viewDidLoad() {
         super.viewDidLoad()
         presentationController?.delegate = self
-        addNote("Какие данные: даты и суммы операций, названия продавцов или контрагентов, назначения платежей и категории. Для чата — ваше сообщение, часть истории и подходящие операции. Для миссий — цель и недавние операции.", symbol: "doc.text")
-        addNote("Кому: наш сервер Google Firebase → OpenRouter, Inc. → NVIDIA (провайдер модели Nemotron). PDF целиком не отправляется. Текст операции может содержать имена и другие личные сведения.", symbol: "arrow.up.forward.square")
-        addNote("Зачем: предложить категории, ответить на вопрос по операциям и составить миссии. У OpenRouter и NVIDIA действуют собственные условия хранения и использования данных.", symbol: "sparkles")
-        addNote("Разрешение можно отозвать в Настройках → Конфиденциальность. Это остановит новые AI-запросы; уже переданные данные нельзя отозвать из завершённого запроса.")
+        addNote(L10n.text("Какие данные: даты и суммы операций, названия продавцов или контрагентов, назначения платежей и категории. Для чата — ваше сообщение, часть истории и подходящие операции. Для миссий — цель и недавние операции."), symbol: "doc.text")
+        addNote(L10n.text("Кому: наш сервер Google Firebase → OpenRouter, Inc. → NVIDIA (провайдер модели Nemotron). PDF целиком не отправляется. Текст операции может содержать имена и другие личные сведения."), symbol: "arrow.up.forward.square")
+        addNote(L10n.text("Зачем: предложить категории, ответить на вопрос по операциям и составить миссии. У OpenRouter и NVIDIA действуют собственные условия хранения и использования данных."), symbol: "sparkles")
+        addNote(L10n.text("Разрешение можно отозвать в Настройках → Конфиденциальность. Это остановит новые AI-запросы; уже переданные данные нельзя отозвать из завершённого запроса."))
         let policy = UIButton(type: .system)
         var policyConfig = UIButton.Configuration.plain()
-        policyConfig.title = "Политика конфиденциальности"
+        policyConfig.title = L10n.text("Политика конфиденциальности")
         policyConfig.image = UIImage(systemName: "doc.text.magnifyingglass")
         policyConfig.imagePadding = 8
         policy.configuration = policyConfig
@@ -49,7 +49,7 @@ final class AIConsentViewController: FinLitFormSheet, UIAdaptivePresentationCont
         } else { contentStack.addArrangedSubview(policy) }
         let decline = UIButton(type: .system)
         var config = UIButton.Configuration.gray()
-        config.title = AIPrivacyPreferences().isAllowed ? "Отключить AI" : "Продолжить без AI"
+        config.title = AIPrivacyPreferences().isAllowed ? L10n.text("Отключить AI") : L10n.text("Продолжить без AI")
         config.baseForegroundColor = .label
         config.contentInsets = .init(top: 16, leading: 18, bottom: 16, trailing: 18)
         config.titleLineBreakMode = .byWordWrapping

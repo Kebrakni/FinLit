@@ -135,7 +135,7 @@ final class AppStorage {
             if let manual = LearnedCategoryRules.manualCategory(for: transaction.merchant, details: transaction.details, defaults: defaults) {
                 guard manual != transaction.category else { return nil }
                 return CategoryReviewItem(transaction: transaction, suggestedCategory: manual,
-                                          reason: "Ранее вы выбрали другую категорию для этого продавца и типа операции.", fromAI: false)
+                                          reason: L10n.text("Ранее вы выбрали другую категорию для этого продавца и типа операции."), fromAI: false)
             }
             if let evidence = Categorizer.evidence(merchant: transaction.merchant, details: transaction.details) {
                 guard evidence.category != transaction.category else { return nil }
@@ -143,7 +143,7 @@ final class AppStorage {
             }
             guard transaction.category == .other else { return nil }
             return CategoryReviewItem(transaction: transaction, suggestedCategory: nil,
-                                      reason: "Назначение платежа не удалось определить уверенно. Проверьте категорию или запустите AI-проверку.", fromAI: false)
+                                      reason: L10n.text("Назначение платежа не удалось определить уверенно. Проверьте категорию или запустите AI-проверку."), fromAI: false)
         }.sorted { $0.transaction.date > $1.transaction.date }
     }
 
@@ -182,7 +182,7 @@ final class AppStorage {
         let updated = current.withCategory(category)
         var records = loadCategoryReviews()
         records[current.id] = CategoryReviewRecord(snapshot: .init(updated), suggestedCategory: category,
-            needsReview: false, reason: "Подтверждено вами", decidedByUser: true, date: Date())
+            needsReview: false, reason: L10n.text("Подтверждено вами"), decidedByUser: true, date: Date())
         saveCategoryReviews(records)
         if remember {
             LearnedCategoryRules.confirm(merchant: current.merchant, details: current.details, category: category, defaults: defaults)
@@ -472,7 +472,7 @@ final class AppStorage {
             participants[idx].targetAmount = goal.targetAmount
         } else {
             participants.insert(
-                BattleParticipant(id: myId, name: "Я", savedAmount: combinedSavings,
+                BattleParticipant(id: myId, name: L10n.text("Я"), savedAmount: combinedSavings,
                                   targetAmount: goal.targetAmount, joinedAt: Date()),
                 at: 0
             )

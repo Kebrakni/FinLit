@@ -81,9 +81,9 @@ actor AnonymousAIIdentity {
         case configuration, unavailable, keychain
         var errorDescription: String? {
             switch self {
-            case .configuration: return "Не настроен профиль AI-чата."
-            case .unavailable: return "Не удалось подключить профиль AI-чата. Проверьте интернет и попробуйте снова."
-            case .keychain: return "Не удалось открыть защищённый профиль AI-чата. Разблокируйте iPhone и попробуйте снова."
+            case .configuration: return L10n.text("Не настроен профиль AI-чата.")
+            case .unavailable: return L10n.text("Не удалось подключить профиль AI-чата. Проверьте интернет и попробуйте снова.")
+            case .keychain: return L10n.text("Не удалось открыть защищённый профиль AI-чата. Разблокируйте iPhone и попробуйте снова.")
             }
         }
     }

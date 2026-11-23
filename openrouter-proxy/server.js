@@ -90,7 +90,7 @@ const server = http.createServer(async (request, response) => {
         sendJSON(response, 503, { error: "На proxy-сервере не настроен OPENROUTER_API_KEY" }); return;
       }
       const assessments = await requestCategoryAudit({ fetch, apiKey: process.env.OPENROUTER_API_KEY,
-        model: MODEL, url: OPENROUTER_URL, transactions, codes: categoryCodes, descriptions: categoryDescriptions });
+        model: MODEL, url: OPENROUTER_URL, transactions, codes: categoryCodes, descriptions: categoryDescriptions, language: request.headers["x-tengely-language"] === "en" ? "en" : "ru" });
       sendJSON(response, 200, { assessments });
     } catch (error) {
       sendJSON(response, error.statusCode || 502, { error: error.publicMessage || "Не удалось проверить категории. Попробуйте ещё раз." });

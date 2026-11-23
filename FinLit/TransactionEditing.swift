@@ -45,11 +45,11 @@ final class TransactionEditorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Операция"
+        title = L10n.text("Операция")
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = FinLitTheme.background
         navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "Отмена",
+            title: L10n.text("Отмена"),
             style: .plain,
             target: self,
             action: #selector(cancel)
@@ -74,7 +74,7 @@ final class TransactionEditorViewController: UIViewController {
         errorLabel.font = .systemFont(ofSize: 13)
         errorLabel.numberOfLines = 0
         errorLabel.isHidden = true
-        FinLitTheme.configurePrimaryButton(saveButton, title: "Сохранить изменения", image: "checkmark")
+        FinLitTheme.configurePrimaryButton(saveButton, title: L10n.text("Сохранить изменения"), image: "checkmark")
         saveButton.addTarget(self, action: #selector(save), for: .touchUpInside)
         view.addSubview(footer)
 
@@ -95,10 +95,10 @@ final class TransactionEditorViewController: UIViewController {
 
         let summary = makeSummaryCard()
         stackView.addArrangedSubview(summary)
-        stackView.addArrangedSubview(makeFieldCard(title: "Название", content: merchantField))
-        stackView.addArrangedSubview(makeFieldCard(title: "Сумма в тенге", content: amountField))
-        stackView.addArrangedSubview(makeFieldCard(title: "Категория", content: categoryButton))
-        stackView.addArrangedSubview(makeFieldCard(title: "Описание", content: detailsView))
+        stackView.addArrangedSubview(makeFieldCard(title: L10n.text("Название"), content: merchantField))
+        stackView.addArrangedSubview(makeFieldCard(title: L10n.text("Сумма в тенге"), content: amountField))
+        stackView.addArrangedSubview(makeFieldCard(title: L10n.text("Категория"), content: categoryButton))
+        stackView.addArrangedSubview(makeFieldCard(title: L10n.text("Описание"), content: detailsView))
 
         merchantField.font = .systemFont(ofSize: 16, weight: .medium)
         merchantField.clearButtonMode = .whileEditing
@@ -138,10 +138,10 @@ final class TransactionEditorViewController: UIViewController {
         icon.tintColor = FinLitTheme.accent
         icon.contentMode = .scaleAspectFit
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 24, weight: .semibold)
-        title.text = "Всё под вашим контролем"
+        title.text = L10n.text("Всё под вашим контролем")
         title.font = .systemFont(ofSize: 17, weight: .bold)
         title.numberOfLines = 0
-        subtitle.text = "Исправьте сумму или категорию. Мы запомним категорию для этого продавца. Минус в сумме означает расход, плюс — доход."
+        subtitle.text = L10n.text("Исправьте сумму или категорию. Мы запомним категорию для этого продавца. Минус в сумме означает расход, плюс — доход.")
         subtitle.font = .systemFont(ofSize: 13, weight: .medium)
         subtitle.textColor = .secondaryLabel
         subtitle.numberOfLines = 0
@@ -192,7 +192,7 @@ final class TransactionEditorViewController: UIViewController {
     private func rebuildCategoryMenu() {
         let actions = TxCategory.allCases.map { category in
             UIAction(
-                title: category.rawValue,
+                title: category.displayName,
                 image: UIImage(systemName: category.icon),
                 state: category == selectedCategory ? .on : .off
             ) { [weak self] _ in
@@ -200,8 +200,8 @@ final class TransactionEditorViewController: UIViewController {
                 self?.rebuildCategoryMenu()
             }
         }
-        categoryButton.menu = UIMenu(title: "Выберите категорию", children: actions)
-        categoryButton.configuration?.title = selectedCategory.rawValue
+        categoryButton.menu = UIMenu(title: L10n.text("Выберите категорию"), children: actions)
+        categoryButton.configuration?.title = selectedCategory.displayName
         categoryButton.configuration?.image = UIImage(systemName: selectedCategory.icon)
         categoryButton.configuration?.baseForegroundColor = selectedCategory.uiColor
     }
@@ -218,7 +218,7 @@ final class TransactionEditorViewController: UIViewController {
             .replacingOccurrences(of: ",", with: ".")
         guard !merchant.isEmpty, let amount = Double(amountText), amount.isFinite,
               amount != 0, abs(amount) <= 1_000_000_000_000 else {
-            errorLabel.text = "Укажите название и ненулевую сумму операции."
+            errorLabel.text = L10n.text("Укажите название и ненулевую сумму операции.")
             errorLabel.isHidden = false
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             return

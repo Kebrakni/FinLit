@@ -40,8 +40,8 @@ final class BattleNotificationManager {
             weekday: 1,
             hour: 19,
             minute: 0,
-            title: "Битва накоплений",
-            body: "Загрузи выписку за эту неделю, чтобы обновить счёт в баттле!"
+            title: L10n.text("Битва накоплений"),
+            body: L10n.text("Загрузи выписку за эту неделю, чтобы обновить счёт в баттле!")
         )
 
         // 2) Каждый понедельник в 9:00 — если кто-то ещё не загрузил
@@ -50,8 +50,8 @@ final class BattleNotificationManager {
             weekday: 2,
             hour: 9,
             minute: 0,
-            title: "Не забудь про баттл",
-            body: "Новая неделя — новая выписка! Открой Аналитику в Tengely и загрузи выписку по карте на английском в формате PDF."
+            title: L10n.text("Не забудь про баттл"),
+            body: L10n.text("Новая неделя — новая выписка! Открой Аналитику в Tengely и загрузи выписку по карте на английском в формате PDF.")
         )
     }
 
@@ -63,10 +63,18 @@ final class BattleNotificationManager {
         )
     }
 
+    func refreshLanguageIfScheduled() {
+        UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
+            guard let self, requests.contains(where: { $0.identifier == self.weeklyReminderID || $0.identifier == self.mondayMorningID }) else { return }
+            DispatchQueue.main.async { self.scheduleWeeklyReminders() }
+        }
+    }
+
     // MARK: - Отправить немедленное уведомление (когда соперник обновил счёт)
 
     func notifyOpponentUpdated(opponentName: String, newAmount: Double) {
         let f = NumberFormatter()
+        f.locale = L10n.locale
         f.numberStyle = .decimal
         f.maximumFractionDigits = 2
         let amountStr = f.string(from: NSNumber(value: abs(newAmount))) ?? "0"
@@ -74,8 +82,8 @@ final class BattleNotificationManager {
 
         sendImmediate(
             id: "opponent_update_\(opponentName)_\(Int(Date().timeIntervalSince1970))",
-            title: "\(opponentName) обновил(а) счёт!",
-            body: "Теперь у \(opponentName): \(sign)\(amountStr) ₸. Не отставай!"
+            title: L10n.text("{0} обновил(а) счёт!", String(describing: opponentName)),
+            body: L10n.text("Теперь у {0}: {1}{2} ₸. Не отставай!", String(describing: opponentName), String(describing: sign), String(describing: amountStr))
         )
     }
 

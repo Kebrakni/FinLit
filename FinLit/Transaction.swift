@@ -131,7 +131,7 @@ final class TransactionCell: UITableViewCell {
 
     func configure(with tx: Transaction, date: String, amount: String) {
         titleLabel.text = tx.merchant
-        categoryLabel.text = tx.category.rawValue
+        categoryLabel.text = tx.category.displayName
         dateLabel.text = date
         amountLabel.text = amount
         amountLabel.textColor = tx.amount < 0 ? .systemRed : .systemGreen

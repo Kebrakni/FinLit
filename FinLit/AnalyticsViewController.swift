@@ -16,7 +16,7 @@ final class AnalyticsViewController: UIViewController,
     private var totalIncome:  Double = 0
     private var totalExpense: Double = 0
     private var netSavings:   Double = 0
-    private var isImporting = false
+    private(set) var isImporting = false
 
     // MARK: - UI
 
@@ -25,9 +25,9 @@ final class AnalyticsViewController: UIViewController,
     private let categoryReviewButton = UIButton(type: .system)
     private let progressOverlay = ImportProgressView()
     private let summaryCard   = UIView()
-    private let incomeRow     = SummaryRow(icon: "arrow.down", color: .systemGreen, title: "Доходы")
-    private let expenseRow    = SummaryRow(icon: "arrow.up", color: .systemRed, title: "Расходы")
-    private let netRow        = SummaryRow(icon: "chart.line.uptrend.xyaxis", color: FinLitTheme.accent, title: "Баланс")
+    private let incomeRow     = SummaryRow(icon: "arrow.down", color: .systemGreen, title: L10n.text("Доходы"))
+    private let expenseRow    = SummaryRow(icon: "arrow.up", color: .systemRed, title: L10n.text("Расходы"))
+    private let netRow        = SummaryRow(icon: "chart.line.uptrend.xyaxis", color: FinLitTheme.accent, title: L10n.text("Баланс"))
     private let statLabel     = UILabel()   // сколько выписок загружено
     private let battleBanner  = UIView()
     private let battleLabel   = UILabel()
@@ -38,7 +38,7 @@ final class AnalyticsViewController: UIViewController,
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = FinLitTheme.background
-        title = "Аналитика"
+        title = L10n.text("Аналитика")
         let aiButton = UIButton(type: .system)
         aiButton.setImage(UIImage(systemName: "sparkles"), for: .normal)
         aiButton.tintColor = FinLitTheme.accent
@@ -48,7 +48,7 @@ final class AnalyticsViewController: UIViewController,
         aiButton.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
         aiButton.addTarget(self, action: #selector(openAIChat), for: .touchUpInside)
         let aiItem = UIBarButtonItem(customView: aiButton)
-        aiItem.accessibilityLabel = "AI-помощник"
+        aiItem.accessibilityLabel = L10n.text("AI-помощник")
 
         let toolsButton = UIButton(type: .system)
         toolsButton.setImage(UIImage(systemName: "calendar.badge.clock"), for: .normal)
@@ -59,10 +59,10 @@ final class AnalyticsViewController: UIViewController,
         toolsButton.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
         toolsButton.addTarget(self, action: #selector(openFinancialTools), for: .touchUpInside)
         let toolsItem = UIBarButtonItem(customView: toolsButton)
-        toolsItem.accessibilityLabel = "Финансовые инструменты"
+        toolsItem.accessibilityLabel = L10n.text("Финансовые инструменты")
         navigationItem.rightBarButtonItems = [aiItem, toolsItem]
         var reviewConfiguration = UIButton.Configuration.tinted()
-        reviewConfiguration.title = "Проверка"
+        reviewConfiguration.title = L10n.text("Проверка")
         reviewConfiguration.image = UIImage(systemName: "checkmark.shield")
         reviewConfiguration.imagePadding = 6
         reviewConfiguration.baseForegroundColor = FinLitTheme.accent
@@ -90,7 +90,7 @@ final class AnalyticsViewController: UIViewController,
         importButton.translatesAutoresizingMaskIntoConstraints = false
         FinLitTheme.configurePrimaryButton(
             importButton,
-            title: "Добавить выписку",
+            title: L10n.text("Добавить выписку"),
             image: "doc.badge.arrow.up"
         )
         importButton.addTarget(self, action: #selector(importPDF), for: .touchUpInside)
@@ -103,7 +103,7 @@ final class AnalyticsViewController: UIViewController,
         resetConfiguration.cornerStyle = .capsule
         resetConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 11)
         resetButton.configuration = resetConfiguration
-        resetButton.accessibilityLabel = "Удалить загруженные выписки"
+        resetButton.accessibilityLabel = L10n.text("Удалить загруженные выписки")
         resetButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         resetButton.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
         resetButton.addTarget(self, action: #selector(didTapReset), for: .touchUpInside)
@@ -243,7 +243,7 @@ final class AnalyticsViewController: UIViewController,
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
         setImporting(true)
-        progressOverlay.update(progress: 0.04, title: "Читаем выписку", detail: "Извлекаем операции из PDF")
+        progressOverlay.update(progress: 0.04, title: L10n.text("Читаем выписку"), detail: L10n.text("Извлекаем операции из PDF"))
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -257,7 +257,7 @@ final class AnalyticsViewController: UIViewController,
     }
 
     private func handleParsedStatement(_ result: KaspiPDFParser.ParseResult) {
-        progressOverlay.update(progress: 0.18, title: "Операции найдены", detail: "Проверяем данные и дубликаты")
+        progressOverlay.update(progress: 0.18, title: L10n.text("Операции найдены"), detail: L10n.text("Проверяем данные и дубликаты"))
 
         if let issue = result.issue {
             setImporting(false)
@@ -267,13 +267,13 @@ final class AnalyticsViewController: UIViewController,
 
         if !result.errors.isEmpty {
             setImporting(false)
-            showAlert(title: "Ошибка парсинга", message: result.errors.prefix(5).joined(separator: "\n"))
+            showAlert(title: L10n.text("Ошибка парсинга"), message: result.errors.prefix(5).joined(separator: "\n"))
             return
         }
 
         guard !result.transactions.isEmpty else {
             setImporting(false)
-            showAlert(title: "Операции не найдены", message: "Нужна выписка по карте на английском в формате PDF с колонками Date, Amount, Transaction и Details. Сохраните оригинальный PDF из банковского приложения, а не скриншот.")
+            showAlert(title: L10n.text("Операции не найдены"), message: L10n.text("Нужна выписка по карте на английском в формате PDF с колонками Date, Amount, Transaction и Details. Сохраните оригинальный PDF из банковского приложения, а не скриншот."))
             return
         }
 
@@ -289,12 +289,12 @@ final class AnalyticsViewController: UIViewController,
                     ? df.string(from: from)
                     : "\(df.string(from: from)) – \(df.string(from: to))"
             } else {
-                overlapText = "весь период"
+                overlapText = L10n.text("весь период")
             }
             setImporting(false)
             showAlert(
-                title: "Новых операций нет",
-                message: "Период \(overlapText) уже загружен. Повторяющиеся дни и операции не были добавлены."
+                title: L10n.text("Новых операций нет"),
+                message: L10n.text("Период {0} уже загружен. Повторяющиеся дни и операции не были добавлены.", String(describing: overlapText))
             )
             return
         }
@@ -336,20 +336,20 @@ final class AnalyticsViewController: UIViewController,
                     await MainActor.run {
                         self.progressOverlay.update(
                             progress: 0.92,
-                            title: "Завершаем обработку",
-                            detail: AIPrivacyPreferences().isAllowed ? "AI недоступен — сохраняем локальный результат" : "AI выключен — завершаем обработку локально"
+                            title: L10n.text("Завершаем обработку"),
+                            detail: AIPrivacyPreferences().isAllowed ? L10n.text("AI недоступен — сохраняем локальный результат") : L10n.text("AI выключен — завершаем обработку локально")
                         )
                     }
                 }
             } else {
-                self.progressOverlay.update(progress: 0.92, title: "Локальная обработка", detail: "Категории определены на iPhone")
+                self.progressOverlay.update(progress: 0.92, title: L10n.text("Локальная обработка"), detail: L10n.text("Категории определены на iPhone"))
             }
 
             await MainActor.run { [weak self] in
                 self?.progressOverlay.update(
                     progress: 0.97,
-                    title: "Сохраняем результат",
-                    detail: "Обновляем аналитику"
+                    title: L10n.text("Сохраняем результат"),
+                    detail: L10n.text("Обновляем аналитику")
                 )
                 self?.finishImport(
                     transactions: categorizedTransactions,
@@ -367,7 +367,7 @@ final class AnalyticsViewController: UIViewController,
         aiCategorizedCount: Int,
         importPlan: StatementImportPlan
     ) {
-        progressOverlay.update(progress: 1, title: "Готово", detail: "Аналитика обновлена")
+        progressOverlay.update(progress: 1, title: L10n.text("Готово"), detail: L10n.text("Аналитика обновлена"))
         AppStorage.shared.markAsImported(fingerprint, plan: importPlan)
         allTransactions = AppStorage.shared.mergeTransactions(transactions)
         AppStorage.shared.recalculateAndSaveNet()
@@ -384,23 +384,23 @@ final class AnalyticsViewController: UIViewController,
         let from = df.string(from: sorted.first!.date)
         let to = df.string(from: sorted.last!.date)
         let mode: String
-        if aiCategorizedCount == 0 { mode = "Использованы локальные категории" }
-        else if aiCategorizedCount < transactions.count { mode = "AI проверил \(aiCategorizedCount) из \(transactions.count) операций; остальные обработаны локально" }
-        else { mode = "Категории проверены AI" }
+        if aiCategorizedCount == 0 { mode = L10n.text("Использованы локальные категории") }
+        else if aiCategorizedCount < transactions.count { mode = L10n.text("AI проверил {0} из {1} операций; остальные обработаны локально", String(describing: aiCategorizedCount), String(describing: transactions.count)) }
+        else { mode = L10n.text("Категории проверены AI") }
 
-        var message = "Добавлено \(transactions.count) транзакций (\(from) – \(to))\n\(mode)"
+        var message = L10n.text("Добавлено {0} транзакций ({1} – {2})\n{3}", String(describing: transactions.count), String(describing: from), String(describing: to), String(describing: mode))
         if importPlan.hasOverlap {
-            message += "\nПропущено повторяющихся операций: \(importPlan.skippedTransactionCount)"
+            message += L10n.text("\nПропущено повторяющихся операций: {0}", String(describing: importPlan.skippedTransactionCount))
         }
-        message += "\nВсего накоплено: \(allTransactions.count) транзакций"
+        message += L10n.text("\nВсего накоплено: {0} транзакций", String(describing: allTransactions.count))
         let pendingReviews = AppStorage.shared.categoryReviewItems().count
         if pendingReviews > 0 {
-            message += "\nНужно уточнить категорию: \(pendingReviews). Откройте «Проверка» в Аналитике."
+            message += L10n.text("\nНужно уточнить категорию: {0}. Откройте «Проверка» в Аналитике.", String(describing: pendingReviews))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
             guard let self else { return }
             self.setImporting(false)
-            self.showAlert(title: "Выписка добавлена", message: message)
+            self.showAlert(title: L10n.text("Выписка добавлена"), message: message)
         }
     }
 
@@ -411,7 +411,7 @@ final class AnalyticsViewController: UIViewController,
         categoryReviewButton.isEnabled = !importing && !allTransactions.isEmpty
         navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = !importing }
         importButton.alpha = importing ? 0.65 : 1
-        importButton.configuration?.title = importing ? "Анализируем выписку…" : "Добавить выписку"
+        importButton.configuration?.title = importing ? L10n.text("Анализируем выписку…") : L10n.text("Добавить выписку")
         if importing {
             progressOverlay.present(in: view)
         } else {
@@ -448,12 +448,12 @@ final class AnalyticsViewController: UIViewController,
     @objc private func didTapReset() {
         guard !isImporting else { return }
         let alert = UIAlertController(
-            title: "Сбросить все данные?",
-            message: "Все загруженные выписки и история транзакций будут удалены. Это действие нельзя отменить.",
+            title: L10n.text("Сбросить все данные?"),
+            message: L10n.text("Все загруженные выписки и история транзакций будут удалены. Это действие нельзя отменить."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Сбросить", style: .destructive, handler: { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("Отмена"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("Сбросить"), style: .destructive, handler: { [weak self] _ in
             AppStorage.shared.clearAllTransactions()
             self?.loadAndRender()
         }))
@@ -483,19 +483,19 @@ final class AnalyticsViewController: UIViewController,
 
     private func render() {
         let pending = AppStorage.shared.categoryReviewItems().count
-        categoryReviewButton.configuration?.title = pending > 0 ? "Проверка · \(pending)" : "Проверка"
-        categoryReviewButton.accessibilityLabel = "Проверка категорий. Ждут решения: \(pending)"
+        categoryReviewButton.configuration?.title = pending > 0 ? L10n.text("Проверка · {0}", String(describing: pending)) : L10n.text("Проверка")
+        categoryReviewButton.accessibilityLabel = L10n.text("Проверка категорий. Ждут решения: {0}", String(describing: pending))
         categoryReviewButton.isEnabled = !isImporting && !allTransactions.isEmpty
         tableView.backgroundView = allTransactions.isEmpty ? FinLitEmptyStateView(
             symbol: "chart.bar.xaxis",
-            title: "Ваша история денег",
-            detail: "Добавьте первую выписку — здесь появятся категории, структура расходов и доходы."
+            title: L10n.text("Ваша история денег"),
+            detail: L10n.text("Добавьте первую выписку — здесь появятся категории, структура расходов и доходы.")
         ) : nil
         guard !allTransactions.isEmpty else {
             incomeRow.setValue("—")
             expenseRow.setValue("—")
             netRow.setValue("—")
-            statLabel.text = "Выписки не загружены"
+            statLabel.text = L10n.text("Выписки не загружены")
             battleBanner.isHidden = true
             resetButton.isHidden = true
             return
@@ -508,7 +508,7 @@ final class AnalyticsViewController: UIViewController,
         let df = DateFormatter(); df.dateFormat = "dd.MM.yyyy"
         let fromDate = df.string(from: sorted.first!.date)
         let toDate   = df.string(from: sorted.last!.date)
-        statLabel.text = "\(fromDate) – \(toDate)  •  \(allTransactions.count) транзакций"
+        statLabel.text = L10n.text("{0} – {1}  •  {2} транзакций", String(describing: fromDate), String(describing: toDate), String(describing: allTransactions.count))
 
         incomeRow.setValue(formatMoneyAbs(totalIncome))
         expenseRow.setValue(formatMoneyAbs(totalExpense))
@@ -520,11 +520,11 @@ final class AnalyticsViewController: UIViewController,
         if netSavings >= 0 {
             battleBanner.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.12)
             battleLabel.textColor = .systemGreen
-            battleLabel.text = "+\(formatMoneyAbs(netSavings)) из выписок учтено в цели"
+            battleLabel.text = L10n.text("+{0} из выписок учтено в цели", String(describing: formatMoneyAbs(netSavings)))
         } else {
             battleBanner.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
             battleLabel.textColor = .systemOrange
-            battleLabel.text = "Расходы превышают доходы на \(formatMoneyAbs(netSavings))"
+            battleLabel.text = L10n.text("Расходы превышают доходы на {0}", String(describing: formatMoneyAbs(netSavings)))
         }
     }
 
@@ -533,7 +533,7 @@ final class AnalyticsViewController: UIViewController,
     func numberOfSections(in tableView: UITableView) -> Int { allTransactions.isEmpty ? 0 : 2 }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? "Расходы по категориям" : "Доходы по категориям"
+        section == 0 ? L10n.text("Расходы по категориям") : L10n.text("Доходы по категориям")
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -680,7 +680,7 @@ final class ImportProgressView: UIView {
         symbol.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
 
         stageLabel.translatesAutoresizingMaskIntoConstraints = false
-        stageLabel.text = "ОБРАБОТКА ВЫПИСКИ"
+        stageLabel.text = L10n.text("ОБРАБОТКА ВЫПИСКИ")
         stageLabel.font = .systemFont(ofSize: 11, weight: .bold)
         stageLabel.textColor = .secondaryLabel
 
@@ -709,7 +709,7 @@ final class ImportProgressView: UIView {
         estimateLabel.translatesAutoresizingMaskIntoConstraints = false
         estimateLabel.font = .systemFont(ofSize: 12, weight: .medium)
         estimateLabel.textColor = .tertiaryLabel
-        estimateLabel.text = "Подготавливаем данные…"
+        estimateLabel.text = L10n.text("Подготавливаем данные…")
 
         addSubview(card)
         [iconBackground, stageLabel, percentLabel, titleLabel, detailLabel, progressView, estimateLabel].forEach(card.addSubview)
@@ -776,9 +776,9 @@ final class ImportProgressView: UIView {
         titleLabel.text = title
         detailLabel.text = detail
         if value < 0.22 {
-            estimateLabel.text = "Подготавливаем данные…"
+            estimateLabel.text = L10n.text("Подготавливаем данные…")
         } else if value >= 0.97 {
-            estimateLabel.text = value >= 1 ? "Все этапы завершены" : "Осталось совсем немного"
+            estimateLabel.text = value >= 1 ? L10n.text("Все этапы завершены") : L10n.text("Осталось совсем немного")
         }
         setVisualProgress(value)
     }
@@ -790,9 +790,9 @@ final class ImportProgressView: UIView {
         realProcessedCount = 0
         realProgressFloor = 0.22
         estimatedDuration = max(8, Double(aiTransactionCount) * 0.60)
-        titleLabel.text = "AI анализирует операции"
-        detailLabel.text = "\(aiTransactionCount) операций • прогресс приблизительный"
-        estimateLabel.text = "Обычно около \(formattedTime(estimatedDuration))"
+        titleLabel.text = L10n.text("AI анализирует операции")
+        detailLabel.text = L10n.text("{0} операций • прогресс приблизительный", String(describing: aiTransactionCount))
+        estimateLabel.text = L10n.text("Обычно около {0}", String(describing: formattedTime(estimatedDuration)))
         setVisualProgress(0.22)
 
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -807,11 +807,11 @@ final class ImportProgressView: UIView {
         realProcessedCount = max(realProcessedCount, min(processed, total))
         let fraction = Double(realProcessedCount) / Double(total)
         realProgressFloor = min(0.92, 0.22 + fraction * 0.70)
-        detailLabel.text = "AI подтвердил \(realProcessedCount) из \(total) операций"
+        detailLabel.text = L10n.text("AI подтвердил {0} из {1} операций", String(describing: realProcessedCount), String(describing: total))
         setVisualProgress(max(displayedProgress, realProgressFloor))
         if realProcessedCount >= total {
             stopEstimation()
-            estimateLabel.text = "Ответ получен • формируем аналитику"
+            estimateLabel.text = L10n.text("Ответ получен • формируем аналитику")
         }
     }
 
@@ -828,12 +828,12 @@ final class ImportProgressView: UIView {
 
         let remaining = max(estimatedDuration - elapsed, 0)
         if remaining > 0 {
-            estimateLabel.text = "Примерно \(formattedTime(remaining)) до завершения"
+            estimateLabel.text = L10n.text("Примерно {0} до завершения", String(describing: formattedTime(remaining)))
         } else {
-            estimateLabel.text = "AI завершает последнюю проверку"
+            estimateLabel.text = L10n.text("AI завершает последнюю проверку")
         }
         if realProcessedCount == 0 {
-            detailLabel.text = "\(aiTransactionCount) операций • прогресс приблизительный"
+            detailLabel.text = L10n.text("{0} операций • прогресс приблизительный", String(describing: aiTransactionCount))
         }
     }
 
@@ -846,11 +846,11 @@ final class ImportProgressView: UIView {
 
     private func formattedTime(_ interval: TimeInterval) -> String {
         let seconds = max(Int(ceil(interval)), 1)
-        if seconds < 60 { return "\(seconds) сек."
+        if seconds < 60 { return L10n.text("{0} сек.", String(describing: seconds))
         }
         let minutes = seconds / 60
         let remainder = seconds % 60
-        return remainder == 0 ? "\(minutes) мин." : "\(minutes) мин. \(remainder) сек."
+        return remainder == 0 ? L10n.text("{0} мин.", String(describing: minutes)) : L10n.text("{0} мин. {1} сек.", String(describing: minutes), String(describing: remainder))
     }
 
     private func stopEstimation() {

@@ -4,14 +4,14 @@ import UIKit
 
 final class FinancialToolsViewController: UIViewController {
     private let segmentedControl = UISegmentedControl(items: [
-        "Поиск", "Календарь", "Сравнение", "Платежи"
+        L10n.text("Поиск"), L10n.text("Календарь"), L10n.text("Сравнение"), L10n.text("Платежи")
     ])
     private let containerView = UIView()
     private var currentChild: UIViewController?
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Финансовые инструменты"
+        title = L10n.text("Финансовые инструменты")
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = FinLitTheme.background
         setupUI()
@@ -88,10 +88,10 @@ private final class TransactionSearchViewController: UIViewController,
 
         var title: String {
             switch self {
-            case .all: return "За всё время"
-            case .thirtyDays: return "Последние 30 дней"
-            case .thisMonth: return "Текущий месяц"
-            case .thisYear: return "Текущий год"
+            case .all: return L10n.text("За всё время")
+            case .thirtyDays: return L10n.text("Последние 30 дней")
+            case .thisMonth: return L10n.text("Текущий месяц")
+            case .thisYear: return L10n.text("Текущий год")
             }
         }
     }
@@ -125,7 +125,7 @@ private final class TransactionSearchViewController: UIViewController,
     private func setupUI() {
         searchBar.translatesAutoresizingMaskIntoConstraints = false
         searchBar.delegate = self
-        searchBar.placeholder = "Название, сумма или категория"
+        searchBar.placeholder = L10n.text("Название, сумма или категория")
         searchBar.searchBarStyle = .minimal
         searchBar.autocapitalizationType = .none
 
@@ -179,13 +179,13 @@ private final class TransactionSearchViewController: UIViewController,
     }
 
     private func updateMenus() {
-        let categoryActions = [UIAction(title: "Все категории", state: selectedCategory == nil ? .on : .off) { [weak self] _ in
+        let categoryActions = [UIAction(title: L10n.text("Все категории"), state: selectedCategory == nil ? .on : .off) { [weak self] _ in
             self?.selectedCategory = nil
             self?.updateMenus()
             self?.applyFilters()
         }] + TxCategory.allCases.map { category in
             UIAction(
-                title: category.rawValue,
+                title: category.displayName,
                 image: UIImage(systemName: category.icon),
                 state: selectedCategory == category ? .on : .off
             ) { [weak self] _ in
@@ -194,10 +194,10 @@ private final class TransactionSearchViewController: UIViewController,
                 self?.applyFilters()
             }
         }
-        categoryButton.menu = UIMenu(title: "Категория", options: .displayInline, children: categoryActions)
-        categoryButton.configuration?.title = selectedCategory?.rawValue ?? "Все категории"
+        categoryButton.menu = UIMenu(title: L10n.text("Категория"), options: .displayInline, children: categoryActions)
+        categoryButton.configuration?.title = selectedCategory?.displayName ?? L10n.text("Все категории")
 
-        periodButton.menu = UIMenu(title: "Период", options: .displayInline, children: Period.allCases.map { period in
+        periodButton.menu = UIMenu(title: L10n.text("Период"), options: .displayInline, children: Period.allCases.map { period in
             UIAction(title: period.title, state: selectedPeriod == period ? .on : .off) { [weak self] _ in
                 self?.selectedPeriod = period
                 self?.updateMenus()
@@ -228,16 +228,16 @@ private final class TransactionSearchViewController: UIViewController,
             if let end, transaction.date >= end { return false }
             guard !query.isEmpty else { return true }
             let amount = String(format: "%.2f", abs(transaction.amount))
-            let text = "\(transaction.merchant) \(transaction.details) \(transaction.category.rawValue) \(amount)".lowercased()
+            let text = "\(transaction.merchant) \(transaction.details) \(transaction.category.displayName) \(amount)".lowercased()
             let amountQuery = query.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: ".")
             return text.contains(query) || Double(amountQuery) != nil && amount.contains(amountQuery)
         }
         let expenses = filtered.filter { $0.amount < 0 }.reduce(0.0) { $0 + abs($1.amount) }
-        resultLabel.text = "\(filtered.count) операций · расходы \(FinancialToolsFormat.money(expenses))"
+        resultLabel.text = L10n.text("{0} операций · расходы {1}", String(describing: filtered.count), String(describing: FinancialToolsFormat.money(expenses)))
         tableView.backgroundView = filtered.isEmpty ? FinLitEmptyStateView(
             symbol: "magnifyingglass",
-            title: "Ничего не нашлось",
-            detail: "Попробуйте другое название или измените фильтры категории и периода."
+            title: L10n.text("Ничего не нашлось"),
+            detail: L10n.text("Попробуйте другое название или измените фильтры категории и периода.")
         ) : nil
         tableView.reloadData()
     }
@@ -346,7 +346,7 @@ private final class FinanceCalendarViewController: UIViewController,
         weekdays.translatesAutoresizingMaskIntoConstraints = false
         weekdays.axis = .horizontal
         weekdays.distribution = .fillEqually
-        ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"].forEach { value in
+        [L10n.text("ПН"), L10n.text("ВТ"), L10n.text("СР"), L10n.text("ЧТ"), L10n.text("ПТ"), L10n.text("СБ"), L10n.text("ВС")].forEach { value in
             let label = UILabel()
             label.text = value
             label.textAlignment = .center
@@ -427,7 +427,7 @@ private final class FinanceCalendarViewController: UIViewController,
 
     private func refreshMonth() {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.locale = L10n.locale
         formatter.dateFormat = "LLLL yyyy"
         monthLabel.text = formatter.string(from: displayMonth).capitalized
         collectionView.reloadData()
@@ -440,7 +440,7 @@ private final class FinanceCalendarViewController: UIViewController,
             .sorted { $0.date > $1.date }
         let income = selectedTransactions.filter { $0.amount > 0 }.reduce(0.0) { $0 + $1.amount }
         let expense = selectedTransactions.filter { $0.amount < 0 }.reduce(0.0) { $0 + abs($1.amount) }
-        summaryLabel.text = "\(FinancialToolsFormat.longDate(selectedDate))\nДоходы \(FinancialToolsFormat.money(income))  ·  Расходы \(FinancialToolsFormat.money(expense))"
+        summaryLabel.text = L10n.text("{0}\nДоходы {1}  ·  Расходы {2}", String(describing: FinancialToolsFormat.longDate(selectedDate)), String(describing: FinancialToolsFormat.money(income)), String(describing: FinancialToolsFormat.money(expense)))
         tableView.reloadData()
     }
 
@@ -498,7 +498,7 @@ private final class FinanceCalendarViewController: UIViewController,
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "CalendarTransaction", for: indexPath) as! TransactionCell
         let transaction = selectedTransactions[indexPath.row]
-        cell.configure(with: transaction, date: transaction.category.rawValue, amount: FinancialToolsFormat.signedMoney(transaction.amount))
+        cell.configure(with: transaction, date: transaction.category.displayName, amount: FinancialToolsFormat.signedMoney(transaction.amount))
         return cell
     }
 
@@ -638,7 +638,7 @@ private final class MonthComparisonViewController: UIViewController {
         grid.spacing = 10
         grid.distribution = .fillEqually
         grid.addArrangedSubview(metricCard(
-            title: "Расходы",
+            title: L10n.text("Расходы"),
             value: current.expense,
             previous: previous.expense,
             comparisonAvailable: comparisonAvailable,
@@ -647,7 +647,7 @@ private final class MonthComparisonViewController: UIViewController {
             icon: "arrow.down.circle.fill"
         ))
         grid.addArrangedSubview(metricCard(
-            title: "Доходы",
+            title: L10n.text("Доходы"),
             value: current.income,
             previous: previous.income,
             comparisonAvailable: comparisonAvailable,
@@ -657,7 +657,7 @@ private final class MonthComparisonViewController: UIViewController {
         ))
         stackView.addArrangedSubview(grid)
         let balanceCard = metricCard(
-            title: "Баланс месяца",
+            title: L10n.text("Баланс месяца"),
             value: current.balance,
             previous: previous.balance,
             comparisonAvailable: comparisonAvailable,
@@ -669,7 +669,7 @@ private final class MonthComparisonViewController: UIViewController {
         stackView.addArrangedSubview(balanceCard)
 
         let categoryTitle = UILabel()
-        categoryTitle.text = comparisonAvailable ? "Что изменилось в расходах" : "Расходы за месяц"
+        categoryTitle.text = comparisonAvailable ? L10n.text("Что изменилось в расходах") : L10n.text("Расходы за месяц")
         categoryTitle.font = .systemFont(ofSize: 20, weight: .bold)
         stackView.setCustomSpacing(22, after: balanceCard)
         stackView.addArrangedSubview(categoryTitle)
@@ -685,7 +685,7 @@ private final class MonthComparisonViewController: UIViewController {
 
         if changes.isEmpty {
             let label = UILabel()
-            label.text = "Недостаточно расходов для сравнения"
+            label.text = L10n.text("Недостаточно расходов для сравнения")
             label.textColor = .secondaryLabel
             label.font = .systemFont(ofSize: 14, weight: .medium)
             stackView.addArrangedSubview(label)
@@ -714,15 +714,15 @@ private final class MonthComparisonViewController: UIViewController {
         comparisonAvailable: Bool
     ) -> NSAttributedString {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.locale = L10n.locale
         formatter.dateFormat = "LLLL"
         let value = NSMutableAttributedString(
-            string: "\(formatter.string(from: current).capitalized) против \(formatter.string(from: previous))\n",
+            string: L10n.text("{0} против {1}\n", String(describing: formatter.string(from: current).capitalized), String(describing: formatter.string(from: previous))),
             attributes: [.font: UIFont.systemFont(ofSize: 22, weight: .bold), .foregroundColor: UIColor.label]
         )
         let subtitle = comparisonAvailable
-            ? "Сравниваем два соседних календарных месяца"
-            : "За \(formatter.string(from: previous)) нет операций — показываем итоги месяца"
+            ? L10n.text("Сравниваем два соседних календарных месяца")
+            : L10n.text("За {0} нет операций — показываем итоги месяца", String(describing: formatter.string(from: previous)))
         value.append(NSAttributedString(
             string: subtitle,
             attributes: [.font: UIFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: UIColor.secondaryLabel]
@@ -762,13 +762,13 @@ private final class MonthComparisonViewController: UIViewController {
         let percent = previous == 0 ? nil : delta / abs(previous) * 100
         let improvement = lowerIsBetter ? delta <= 0 : delta >= 0
         if !comparisonAvailable {
-            changeLabel.text = "Нет данных за прошлый месяц"
+            changeLabel.text = L10n.text("Нет данных за прошлый месяц")
             changeLabel.textColor = .secondaryLabel
         } else if let percent {
-            changeLabel.text = String(format: "%@%.0f%% к прошлому", delta >= 0 ? "+" : "", percent)
+            changeLabel.text = String(format: L10n.text("%@%.0f%% к прошлому"), delta >= 0 ? "+" : "", percent)
             changeLabel.textColor = improvement ? .systemGreen : .systemOrange
         } else {
-            changeLabel.text = previous == value ? "Без изменений" : "Нет базы сравнения"
+            changeLabel.text = previous == value ? L10n.text("Без изменений") : L10n.text("Нет базы сравнения")
             changeLabel.textColor = improvement ? .systemGreen : .systemOrange
         }
         changeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -812,7 +812,7 @@ private final class MonthComparisonViewController: UIViewController {
         [icon, title, amount, deltaLabel].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
         icon.tintColor = category.uiColor
         icon.contentMode = .scaleAspectFit
-        title.text = category.rawValue
+        title.text = category.displayName
         title.font = .systemFont(ofSize: 14, weight: .semibold)
         amount.text = FinancialToolsFormat.money(current)
         amount.font = .monospacedDigitSystemFont(ofSize: 14, weight: .bold)
@@ -842,7 +842,7 @@ private final class MonthComparisonViewController: UIViewController {
 
     private func emptyView() -> UIView {
         let label = UILabel()
-        label.text = "Загрузите выписку хотя бы за один месяц — здесь появится сравнение."
+        label.text = L10n.text("Загрузите выписку хотя бы за один месяц — здесь появится сравнение.")
         label.numberOfLines = 0
         label.textAlignment = .center
         label.textColor = .secondaryLabel
@@ -890,8 +890,8 @@ private final class RecurringPaymentsViewController: UIViewController,
         headerLabel.font = .systemFont(ofSize: 14, weight: .medium)
         headerLabel.textColor = .secondaryLabel
         headerLabel.text = patterns.isEmpty
-            ? "Пока регулярные списания не найдены. Обычно нужно минимум 2–3 похожих платежа."
-            : "Найдено \(patterns.count) регулярных платежей. Даты следующего списания рассчитаны приблизительно."
+            ? L10n.text("Пока регулярные списания не найдены. Обычно нужно минимум 2–3 похожих платежа.")
+            : L10n.text("Найдено {0} регулярных платежей. Даты следующего списания рассчитаны приблизительно.", String(describing: patterns.count))
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
@@ -901,11 +901,11 @@ private final class RecurringPaymentsViewController: UIViewController,
         tableView.register(RecurringPaymentCell.self, forCellReuseIdentifier: "RecurringPayment")
         tableView.contentInset.bottom = 24
         if patterns.isEmpty {
-            headerLabel.text = "Подписки и другие повторяющиеся списания"
+            headerLabel.text = L10n.text("Подписки и другие повторяющиеся списания")
             tableView.backgroundView = FinLitEmptyStateView(
                 symbol: "arrow.clockwise.circle",
-                title: "Пока без повторений",
-                detail: "Когда в выписках появятся похожие платежи с регулярным интервалом, мы соберём их здесь."
+                title: L10n.text("Пока без повторений"),
+                detail: L10n.text("Когда в выписках появятся похожие платежи с регулярным интервалом, мы соберём их здесь.")
             )
         }
 
@@ -958,13 +958,13 @@ private final class RecurringPaymentsViewController: UIViewController,
             let frequency: String
             let allowedIntervalDeviation: Int
             if (6...8).contains(medianInterval) {
-                frequency = "Примерно каждую неделю"
+                frequency = L10n.text("Примерно каждую неделю")
                 allowedIntervalDeviation = 3
             } else if (25...35).contains(medianInterval) {
-                frequency = "Примерно раз в месяц"
+                frequency = L10n.text("Примерно раз в месяц")
                 allowedIntervalDeviation = 8
             } else if rows.count >= 3, (2...45).contains(medianInterval) {
-                frequency = "Примерно каждые \(medianInterval) дн."
+                frequency = L10n.text("Примерно каждые {0} дн.", String(describing: medianInterval))
                 allowedIntervalDeviation = max(3, Int(Double(medianInterval) * 0.25))
             } else {
                 return nil
@@ -1008,7 +1008,7 @@ private final class RecurringPaymentsViewController: UIViewController,
         Dictionary(grouping: transactions, by: \.merchant)
             .max { $0.value.count < $1.value.count }?.key
             ?? transactions.first?.merchant
-            ?? "Регулярный платёж"
+            ?? L10n.text("Регулярный платёж")
     }
 }
 
@@ -1090,10 +1090,10 @@ private final class RecurringPaymentCell: UITableViewCell {
         iconView.image = UIImage(systemName: pattern.category.icon)
         iconView.tintColor = pattern.category.uiColor
         titleLabel.text = pattern.merchant
-        categoryLabel.text = "\(pattern.category.rawValue) · \(pattern.occurrences) платежа"
+        categoryLabel.text = L10n.text("{0} · {1} платежа", String(describing: pattern.category.displayName), String(describing: pattern.occurrences))
         amountLabel.text = "≈ \(FinancialToolsFormat.money(pattern.averageAmount))"
         frequencyLabel.text = pattern.frequency
-        nextLabel.text = "Следующее списание: около \(FinancialToolsFormat.longDate(pattern.nextDate))"
+        nextLabel.text = L10n.text("Следующее списание: около {0}", String(describing: FinancialToolsFormat.longDate(pattern.nextDate)))
     }
 }
 
@@ -1102,6 +1102,7 @@ private final class RecurringPaymentCell: UITableViewCell {
 private enum FinancialToolsFormat {
     static func money(_ value: Double) -> String {
         let formatter = NumberFormatter()
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 2
         let text = formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
@@ -1115,14 +1116,14 @@ private enum FinancialToolsFormat {
 
     static func date(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.locale = L10n.locale
         formatter.dateFormat = "dd.MM.yyyy"
         return formatter.string(from: date)
     }
 
     static func longDate(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.locale = L10n.locale
         formatter.dateFormat = "d MMMM yyyy"
         return formatter.string(from: date)
     }

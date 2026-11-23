@@ -171,16 +171,16 @@ final class MainTabBarController: UITabBarController {
         UINavigationBar.appearance().tintColor = FinLitTheme.accent
 
         let home = UINavigationController(rootViewController: HomeViewController())
-        home.tabBarItem = UITabBarItem(title: "Цель", image: UIImage(systemName: "house"), selectedImage: UIImage(systemName: "house.fill"))
+        home.tabBarItem = UITabBarItem(title: L10n.text("Цель"), image: UIImage(systemName: "house"), selectedImage: UIImage(systemName: "house.fill"))
 
         let battle = UINavigationController(rootViewController: BattleViewController())
-        battle.tabBarItem = UITabBarItem(title: "Битва", image: UIImage(systemName: "trophy"), selectedImage: UIImage(systemName: "trophy.fill"))
+        battle.tabBarItem = UITabBarItem(title: L10n.text("Битва"), image: UIImage(systemName: "trophy"), selectedImage: UIImage(systemName: "trophy.fill"))
 
         let analytics = UINavigationController(rootViewController: AnalyticsViewController())
-        analytics.tabBarItem = UITabBarItem(title: "Аналитика", image: UIImage(systemName: "chart.pie"), selectedImage: UIImage(systemName: "chart.pie.fill"))
+        analytics.tabBarItem = UITabBarItem(title: L10n.text("Аналитика"), image: UIImage(systemName: "chart.pie"), selectedImage: UIImage(systemName: "chart.pie.fill"))
 
         let settings = UINavigationController(rootViewController: SettingsViewController())
-        settings.tabBarItem = UITabBarItem(title: "Настройки", image: UIImage(systemName: "gearshape"), selectedImage: UIImage(systemName: "gearshape.fill"))
+        settings.tabBarItem = UITabBarItem(title: L10n.text("Настройки"), image: UIImage(systemName: "gearshape"), selectedImage: UIImage(systemName: "gearshape.fill"))
 
         [home, battle, analytics, settings].forEach { navigation in
             navigation.navigationBar.prefersLargeTitles = true

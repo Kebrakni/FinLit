@@ -21,6 +21,29 @@ struct WeeklyMission: Codable, Identifiable, Equatable {
     let xpReward: Int
     let generatedByAI: Bool
     let createdAt: Date
+    var languageCode: String?
+
+    var localizedTitle: String {
+        if generatedByAI && languageCode == L10n.language.rawValue { return title }
+        switch kind {
+        case .saveAmount: return L10n.text("Шаг к цели")
+        case .reviewOperations: return L10n.text("Финансовая ревизия")
+        case .categoryBudget: return L10n.text("Держим бюджет")
+        case .noSpendDays: return L10n.text("Осознанная неделя")
+        }
+    }
+
+    var localizedDetail: String {
+        if generatedByAI && languageCode == L10n.language.rawValue { return detail }
+        switch kind {
+        case .saveAmount: return L10n.text("Отложить {0} за неделю", AssistantMissionFormat.money(target))
+        case .reviewOperations: return L10n.text("Проверить с AI {0} операций", String(Int(target)))
+        case .categoryBudget:
+            let category = categoryCode.flatMap(TxCategory.init(aiCode:)) ?? .other
+            return L10n.text("Не превысить {0} в категории «{1}»", AssistantMissionFormat.money(target), category.displayName)
+        case .noSpendDays: return L10n.text("Провести {0} дня без необязательных покупок", String(Int(target)))
+        }
+    }
 
     var isCompleted: Bool { current >= target }
     var progress: Double { min(max(current / max(target, 1), 0), 1) }
@@ -49,6 +72,17 @@ struct WeeklyMission: Codable, Identifiable, Equatable {
         self.xpReward = max(xpReward, 1)
         self.generatedByAI = generatedByAI
         self.createdAt = createdAt
+        self.languageCode = L10n.language.rawValue
+    }
+}
+
+private enum AssistantMissionFormat {
+    static func money(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = L10n.locale
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 2
+        return "\(formatter.string(from: NSNumber(value: value)) ?? "0") ₸"
     }
 }
 
@@ -345,8 +379,8 @@ private extension GamificationManager {
             WeeklyMission(
                 id: "\(weekID):save",
                 weekID: weekID,
-                title: "Шаг к цели",
-                detail: "Отложить \(Self.moneyText(savingTarget)) за неделю",
+                title: L10n.text("Шаг к цели"),
+                detail: L10n.text("Отложить {0} за неделю", String(describing: Self.moneyText(savingTarget))),
                 kind: .saveAmount,
                 target: savingTarget,
                 xpReward: 60,
@@ -355,8 +389,8 @@ private extension GamificationManager {
             WeeklyMission(
                 id: "\(weekID):review",
                 weekID: weekID,
-                title: "Финансовая ревизия",
-                detail: "Проверить с AI \(Int(reviewTarget)) операций",
+                title: L10n.text("Финансовая ревизия"),
+                detail: L10n.text("Проверить с AI {0} операций", String(describing: Int(reviewTarget))),
                 kind: .reviewOperations,
                 target: reviewTarget,
                 xpReward: 45,
@@ -371,8 +405,8 @@ private extension GamificationManager {
                 WeeklyMission(
                     id: "\(weekID):category:\(topCategory.key.aiCode)",
                     weekID: weekID,
-                    title: "Держим бюджет",
-                    detail: "Не превысить \(Self.moneyText(budget)) в категории «\(topCategory.key.rawValue)»",
+                    title: L10n.text("Держим бюджет"),
+                    detail: L10n.text("Не превысить {0} в категории «{1}»", String(describing: Self.moneyText(budget)), String(describing: topCategory.key.displayName)),
                     kind: .categoryBudget,
                     target: budget,
                     categoryCode: topCategory.key.aiCode,
@@ -385,8 +419,8 @@ private extension GamificationManager {
                 WeeklyMission(
                     id: "\(weekID):no-spend",
                     weekID: weekID,
-                    title: "Осознанная неделя",
-                    detail: "Провести 2 дня без необязательных покупок",
+                    title: L10n.text("Осознанная неделя"),
+                    detail: L10n.text("Провести 2 дня без необязательных покупок"),
                     kind: .noSpendDays,
                     target: 2,
                     xpReward: 55,
@@ -490,81 +524,81 @@ private extension GamificationManager {
         let nextXP: Int?
     }
 
-    static let achievementCatalog: [AchievementDefinition] = [
+    static var achievementCatalog: [AchievementDefinition] { [
         AchievementDefinition(
             id: "first_statement",
-            title: "Первая выписка",
-            detail: "Загрузить первую банковскую выписку",
+            title: L10n.text("Первая выписка"),
+            detail: L10n.text("Загрузить первую банковскую выписку"),
             icon: "doc.text.fill",
             xpReward: 25
         ),
         AchievementDefinition(
             id: "hundred_operations",
-            title: "Под контролем",
-            detail: "Проанализировать 100 операций",
+            title: L10n.text("Под контролем"),
+            detail: L10n.text("Проанализировать 100 операций"),
             icon: "checklist",
             xpReward: 50
         ),
         AchievementDefinition(
             id: "positive_balance",
-            title: "В плюсе",
-            detail: "Получить положительный баланс по выпискам",
+            title: L10n.text("В плюсе"),
+            detail: L10n.text("Получить положительный баланс по выпискам"),
             icon: "chart.line.uptrend.xyaxis",
             xpReward: 40
         ),
         AchievementDefinition(
             id: "goal_25",
-            title: "Первый рубеж",
-            detail: "Накопить 25% финансовой цели",
+            title: L10n.text("Первый рубеж"),
+            detail: L10n.text("Накопить 25% финансовой цели"),
             icon: "flag.fill",
             xpReward: 35
         ),
         AchievementDefinition(
             id: "goal_50",
-            title: "Половина пути",
-            detail: "Накопить 50% финансовой цели",
+            title: L10n.text("Половина пути"),
+            detail: L10n.text("Накопить 50% финансовой цели"),
             icon: "mountain.2.fill",
             xpReward: 60
         ),
         AchievementDefinition(
             id: "goal_100",
-            title: "Цель достигнута",
-            detail: "Полностью закрыть финансовую цель",
+            title: L10n.text("Цель достигнута"),
+            detail: L10n.text("Полностью закрыть финансовую цель"),
             icon: "trophy.fill",
             xpReward: 120
         ),
         AchievementDefinition(
             id: "streak_4",
-            title: "Месяц дисциплины",
-            detail: "Поддерживать активность четыре недели подряд",
+            title: L10n.text("Месяц дисциплины"),
+            detail: L10n.text("Поддерживать активность четыре недели подряд"),
             icon: "flame.fill",
             xpReward: 80
         ),
         AchievementDefinition(
             id: "corrections_10",
-            title: "AI-аудитор",
-            detail: "Исправить 10 операций вместе с AI",
+            title: L10n.text("AI-аудитор"),
+            detail: L10n.text("Исправить 10 операций вместе с AI"),
             icon: "sparkles",
             xpReward: 60
         ),
         AchievementDefinition(
             id: "saved_100k",
-            title: "Первые 100 000 ₸",
-            detail: "Отложить 100 000 ₸ на цель",
+            title: L10n.text("Первые 100 000 ₸"),
+            detail: L10n.text("Отложить 100 000 ₸ на цель"),
             icon: "banknote.fill",
             xpReward: 100
         ),
-    ]
+    ] }
 
     static func level(for xp: Int) -> LevelDefinition {
         let catalog: [(Int, String, String)] = [
-            (0, "Новичок", "leaf.fill"),
-            (150, "Планировщик", "list.bullet.clipboard.fill"),
-            (400, "Накопитель", "banknote.fill"),
-            (800, "Стратег", "scope"),
-            (1_400, "Инвестор привычек", "chart.line.uptrend.xyaxis"),
-            (2_200, "Финансовый мастер", "crown.fill"),
-            (3_200, "Легенда Tengely", "sparkles"),
+            (0, L10n.text("Новичок"), "leaf.fill"),
+            (150, L10n.text("Планировщик"), "list.bullet.clipboard.fill"),
+            (400, L10n.text("Накопитель"), "banknote.fill"),
+            (800, L10n.text("Стратег"), "scope"),
+            (1_400, L10n.text("Инвестор привычек"), "chart.line.uptrend.xyaxis"),
+            (2_200, L10n.text("Финансовый мастер"), "crown.fill"),
+            (3_200, L10n.text("Легенда Tengely"), "sparkles"),
         ]
         let safeXP = max(xp, 0)
         let index = catalog.lastIndex { safeXP >= $0.0 } ?? 0
@@ -725,6 +759,7 @@ extension GamificationManager {
 
     fileprivate static func moneyText(_ amount: Double) -> String {
         let formatter = NumberFormatter()
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 2
         return "\(formatter.string(from: NSNumber(value: amount)) ?? String(Int(amount))) ₸"

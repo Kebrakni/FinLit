@@ -32,6 +32,7 @@ test("The actual API route validates the model decision before returning categor
     require(name) {
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "test-only-key" }) };
+      if (name === "./localization") return require("../functions/localization");
       if (name === "./category-policy") return require("../functions/category-policy");
       if (name === "./category-audit") return require("../functions/category-audit");
       if (name === "./chat-quota") return { getService: () => ({ user: async () => "test-user", fetchFor: () => context.fetch }) };

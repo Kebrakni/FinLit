@@ -5,17 +5,17 @@ nonisolated enum AppearanceChoice: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .system: return "Как на iPhone"
-        case .light: return "Светлая"
-        case .dark: return "Тёмная"
+        case .system: return L10n.text("Как на iPhone")
+        case .light: return L10n.text("Светлая")
+        case .dark: return L10n.text("Тёмная")
         }
     }
 
     var detail: String {
         switch self {
-        case .system: return "Следует настройкам устройства"
-        case .light: return "Светлый фон и мягкие контрасты"
-        case .dark: return "Тёмные поверхности и спокойные акценты"
+        case .system: return L10n.text("Следует настройкам устройства")
+        case .light: return L10n.text("Светлый фон и мягкие контрасты")
+        case .dark: return L10n.text("Тёмные поверхности и спокойные акценты")
         }
     }
 

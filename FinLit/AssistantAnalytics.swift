@@ -4,7 +4,7 @@ import Foundation
 nonisolated enum AssistantAnalytics {
     enum Direction: String, Sendable {
         case outgoing, incoming
-        var title: String { self == .outgoing ? "Кому я переводил" : "Кто переводил мне" }
+        var title: String { self == .outgoing ? L10n.text("Кому я переводил") : L10n.text("Кто переводил мне") }
         func includes(_ row: Transaction) -> Bool { self == .outgoing ? row.amount < 0 : row.amount > 0 }
     }
 
@@ -20,14 +20,14 @@ nonisolated enum AssistantAnalytics {
 
         var title: String {
             switch self {
-            case let .person(_, name, direction): return "\(direction == .outgoing ? "Переводы →" : "Переводы от") \(name)"
+            case let .person(_, name, direction): return "\(direction == .outgoing ? L10n.text("Переводы →") : L10n.text("Переводы от")) \(name)"
             case let .transfers(direction): return direction.title
-            case let .category(category): return "Расходы · \(category.rawValue)"
-            case let .merchant(_, name): return "Расходы · \(name)"
-            case .expenses: return "Все расходы"
-            case .income: return "Все поступления"
-            case .overview: return "Обзор финансов"
-            case let .review(category): return category.map { "Проверить · \($0.rawValue)" } ?? "Проверить распределение"
+            case let .category(category): return L10n.text("Расходы · {0}", String(describing: category.displayName))
+            case let .merchant(_, name): return L10n.text("Расходы · {0}", String(describing: name))
+            case .expenses: return L10n.text("Все расходы")
+            case .income: return L10n.text("Все поступления")
+            case .overview: return L10n.text("Обзор финансов")
+            case let .review(category): return category.map { L10n.text("Проверить · {0}", String(describing: $0.displayName)) } ?? L10n.text("Проверить распределение")
             }
         }
     }
@@ -37,9 +37,9 @@ nonisolated enum AssistantAnalytics {
         let month: Int
         static let all = Period(year: 0, month: 0)
         var title: String {
-            guard year > 0 else { return "За всё время" }
+            guard year > 0 else { return L10n.text("За всё время") }
             let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "ru_RU")
+            formatter.locale = L10n.locale
             formatter.dateFormat = "LLLL yyyy"
             let date = Calendar.current.date(from: DateComponents(year: year, month: month)) ?? .distantPast
             return formatter.string(from: date).capitalized
@@ -114,7 +114,7 @@ nonisolated enum AssistantAnalytics {
 
     static func money(_ amount: Double) -> String {
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "ru_KZ")
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 2
         return "\(formatter.string(from: NSNumber(value: amount)) ?? "0") ₸"
@@ -123,7 +123,7 @@ nonisolated enum AssistantAnalytics {
     static func answer(query: Query, period: Period, transactions: [Transaction]) -> Answer {
         let selected = rows(for: query, period: period, in: transactions)
         let date = DateFormatter()
-        date.locale = Locale(identifier: "ru_RU")
+        date.locale = L10n.locale
         date.dateFormat = "dd.MM.yyyy"
         let summary: String
         let amount: Double
@@ -131,28 +131,28 @@ nonisolated enum AssistantAnalytics {
         switch query {
         case .expenses, .income:
             amount = total(selected)
-            summary = "\(selected.count) операций в загруженных выписках"
+            summary = L10n.text("{0} операций в загруженных выписках", String(describing: selected.count))
             lines = Dictionary(grouping: selected, by: \.category)
                 .map { ($0.key, total($0.value)) }.sorted { $0.1 > $1.1 }
-                .prefix(8).map { "\($0.0.rawValue): \(money($0.1))" }
+                .prefix(8).map { "\($0.0.displayName): \(money($0.1))" }
         case let .transfers(direction):
             amount = total(selected)
-            summary = "\(selected.count) переводов в загруженных выписках"
-            lines = people(in: selected, direction: direction).prefix(8).map { "\($0.name): \(money($0.total)) · \($0.count) операций" }
+            summary = L10n.text("{0} переводов в загруженных выписках", String(describing: selected.count))
+            lines = people(in: selected, direction: direction).prefix(8).map { L10n.text("{0}: {1} · {2} операций", String(describing: $0.name), String(describing: money($0.total)), String(describing: $0.count)) }
         case .overview:
             let incoming = total(selected.filter { $0.amount > 0 })
             let outgoing = total(selected.filter { $0.amount < 0 })
             amount = incoming - outgoing
-            summary = "Баланс за выбранный период"
+            summary = L10n.text("Баланс за выбранный период")
             let categories = Dictionary(grouping: selected.filter { $0.amount < 0 }, by: \.category)
                 .map { ($0.key, total($0.value)) }.sorted { $0.1 > $1.1 }
-            lines = ["Доходы: \(money(incoming))", "Расходы: \(money(outgoing))"]
-            lines += categories.prefix(5).map { "\($0.0.rawValue): \(money($0.1))" }
+            lines = [L10n.text("Доходы: {0}", String(describing: money(incoming))), L10n.text("Расходы: {0}", String(describing: money(outgoing)))]
+            lines += categories.prefix(5).map { "\($0.0.displayName): \(money($0.1))" }
         default:
             amount = total(selected)
-            summary = selected.isEmpty ? "В загруженных выписках нет таких операций" : "\(selected.count) операций в загруженных выписках"
+            summary = selected.isEmpty ? L10n.text("В загруженных выписках нет таких операций") : L10n.text("{0} операций в загруженных выписках", String(describing: selected.count))
             lines = selected.prefix(6).map { "\(date.string(from: $0.date)) · \($0.merchant) · \(money(abs($0.amount)))" }
-            if selected.count > 6 { lines.append("И ещё \(selected.count - 6) операций, учтённых в общей сумме") }
+            if selected.count > 6 { lines.append(L10n.text("И ещё {0} операций, учтённых в общей сумме", String(describing: selected.count - 6))) }
         }
         let insight = AIChatInsight(title: query.title, amount: amount, subtitle: "\(period.title) · \(summary)", lines: lines)
         return Answer(text: "\(query.title). \(period.title): \(money(amount)). \(summary).\n\(lines.joined(separator: "\n"))", insight: insight)

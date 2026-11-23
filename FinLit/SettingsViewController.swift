@@ -6,7 +6,7 @@ final class SettingsViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Настройки"
+        title = L10n.text("Настройки")
         view.backgroundColor = FinLitTheme.background
         tableView.backgroundColor = FinLitTheme.background
         tableView.separatorColor = FinLitTheme.outline
@@ -24,23 +24,23 @@ final class SettingsViewController: UITableViewController {
         tableView.reloadData()
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { section == 2 ? 2 : 1 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { section == 0 || section == 2 ? 2 : 1 }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["Оформление", "Аккаунт", "Конфиденциальность", "Выписки", "О приложении"][section]
+        [L10n.text("Оформление"), L10n.text("Аккаунт"), L10n.text("Конфиденциальность"), L10n.text("Выписки"), L10n.text("О приложении")][section]
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         switch section {
-        case 0: return "Выбор сохраняется. Режим «Как на iPhone» автоматически следует светлой или тёмной теме устройства."
-        case 1: return "Привязка Apple и Google пока недоступна. Выписки, цели и история чата сохраняются на этом устройстве."
-        case 2: return AIPrivacyPreferences().isAllowed ? "Разрешение можно отозвать в любой момент. Новые данные перестанут отправляться в AI." : "AI выключен. Доступны локальная обработка выписок, аналитика и ручные исправления."
+        case 0: return L10n.text("Выбор сохраняется. Режим «Как на iPhone» автоматически следует светлой или тёмной теме устройства.")
+        case 1: return L10n.text("Привязка Apple и Google пока недоступна. Выписки, цели и история чата сохраняются на этом устройстве.")
+        case 2: return AIPrivacyPreferences().isAllowed ? L10n.text("Разрешение можно отозвать в любой момент. Новые данные перестанут отправляться в AI.") : L10n.text("AI выключен. Доступны локальная обработка выписок, аналитика и ручные исправления.")
         default: return nil
         }
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == 0 {
+        if indexPath.section == 0 && indexPath.row == 0 {
             let cell = tableView.dequeueReusableCell(withIdentifier: "Appearance", for: indexPath) as! AppearanceOptionsCell
             cell.configure(selected: AppearanceManager.shared.choice) { [weak cell] choice in
                 AppearanceManager.shared.select(choice)
@@ -62,32 +62,37 @@ final class SettingsViewController: UITableViewController {
         content.imageProperties.tintColor = FinLitTheme.accent
         content.imageProperties.maximumSize = CGSize(width: 28, height: 28)
         switch indexPath.section {
+        case 0:
+            content.text = L10n.text("Язык приложения")
+            content.secondaryText = L10n.language.name
+            content.image = UIImage(systemName: "globe")
+            cell.accessoryType = .disclosureIndicator
         case 1:
-            content.text = UserDefaults.standard.string(forKey: "battle_my_name") ?? "Локальный профиль"
-            content.secondaryText = "На этом iPhone"
+            content.text = UserDefaults.standard.string(forKey: "battle_my_name") ?? L10n.text("Локальный профиль")
+            content.secondaryText = L10n.text("На этом iPhone")
             content.image = UIImage(systemName: "person.crop.circle")
             cell.accessoryType = .disclosureIndicator
         case 2:
             if indexPath.row == 0 {
-                content.text = "Обработка с AI"
-                content.secondaryText = AIPrivacyPreferences().isAllowed ? "Разрешена · Firebase, OpenRouter, NVIDIA" : "Выключена · локальный режим"
+                content.text = L10n.text("Обработка с AI")
+                content.secondaryText = AIPrivacyPreferences().isAllowed ? L10n.text("Разрешена · Firebase, OpenRouter, NVIDIA") : L10n.text("Выключена · локальный режим")
                 content.image = UIImage(systemName: "hand.raised")
             } else {
-                content.text = "Политика конфиденциальности"
-                content.secondaryText = "Данные, получатели и ваши права"
+                content.text = L10n.text("Политика конфиденциальности")
+                content.secondaryText = L10n.text("Данные, получатели и ваши права")
                 content.image = UIImage(systemName: "doc.text.magnifyingglass")
             }
             cell.accessoryType = .disclosureIndicator
         case 3:
-            content.text = "Поддерживаемая выписка"
-            content.secondaryText = "PDF на английском · карта Kaspi Gold"
+            content.text = L10n.text("Поддерживаемая выписка")
+            content.secondaryText = L10n.text("PDF · English · операции в тенге")
             content.image = UIImage(systemName: "doc.text")
             cell.accessoryType = .disclosureIndicator
         default:
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
             let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
             content.text = "Tengely"
-            content.secondaryText = "Личные финансы с ясной целью\nВерсия \(version) (\(build))"
+            content.secondaryText = L10n.text("Личные финансы с ясной целью\nВерсия {0} ({1})", String(describing: version), String(describing: build))
             content.image = UIImage(systemName: "sparkles")
             cell.selectionStyle = .none
         }
@@ -98,10 +103,22 @@ final class SettingsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         switch indexPath.section {
+        case 0:
+            guard indexPath.row == 1 else { return }
+            let sheet = UIAlertController(title: L10n.text("Язык приложения"), message: nil, preferredStyle: .actionSheet)
+            for language in AppLanguage.allCases {
+                sheet.addAction(UIAlertAction(title: language.name, style: .default) { [weak self] _ in self?.selectLanguage(language) })
+            }
+            sheet.addAction(UIAlertAction(title: L10n.text("Отмена"), style: .cancel))
+            if let popover = sheet.popoverPresentationController {
+                popover.sourceView = tableView.cellForRow(at: indexPath)
+                popover.sourceRect = tableView.cellForRow(at: indexPath)?.bounds ?? .zero
+            }
+            present(sheet, animated: true)
         case 1:
             present(FinLitNoticeSheet(
-                title: "Ваш профиль",
-                detail: "Выписки, цели, оформление и история чата сохраняются на этом iPhone. В битвах используется ваш игровой профиль.\n\nApple и Google пока не подключены: вход и перенос данных между устройствами ещё недоступны."
+                title: L10n.text("Ваш профиль"),
+                detail: L10n.text("Выписки, цели, оформление и история чата сохраняются на этом iPhone. В битвах используется ваш игровой профиль.\n\nApple и Google пока не подключены: вход и перенос данных между устройствами ещё недоступны.")
             ), animated: true)
         case 2:
             if indexPath.row == 0 {
@@ -113,11 +130,28 @@ final class SettingsViewController: UITableViewController {
             } else { navigationController?.pushViewController(PrivacyPolicyViewController(), animated: true) }
         case 3:
             present(FinLitNoticeSheet(
-                title: "Как подготовить выписку",
-                detail: "Сейчас поддерживается только оригинальная PDF-выписка по карте Kaspi Gold.\n\n1. Откройте карту → «Выписка» и выберите период.\n2. Выберите English / Английский.\n3. Сохраните PDF через «Поделиться» → «Сохранить в Файлы».\n4. В Аналитике нажмите «Добавить выписку».\n\nФото, скриншоты и выписки других банков пока не поддерживаются."
+                title: L10n.text("Как подготовить выписку"),
+                detail: L10n.text("Сейчас поддерживается один шаблон: оригинальная английская PDF-выписка по карте в тенге с заголовком Balance statement и колонками Date, Amount, Transaction, Details.\n\n1. В банковском приложении откройте «Мой Банк» → карту в тенге → «Выписка» и выберите период.\n2. Выберите English / Английский.\n3. Сохраните PDF через «Поделиться» → «Сохранить в Файлы».\n4. В Аналитике нажмите «Добавить выписку».\n\nДругие шаблоны выписок, фото и скриншоты пока не поддерживаются.")
             ), animated: true)
         default: break
         }
+    }
+
+    private func selectLanguage(_ language: AppLanguage) {
+        guard language != L10n.language, let tabs = tabBarController else { return }
+        let importing = tabs.viewControllers?.compactMap { ($0 as? UINavigationController)?.viewControllers.first as? AnalyticsViewController }.contains { $0.isImporting } ?? false
+        guard !importing else {
+            present(FinLitNoticeSheet(title: L10n.text("Импорт ещё выполняется"), detail: L10n.text("Дождитесь завершения импорта, затем измените язык.")), animated: true)
+            return
+        }
+        LanguagePreferences().language = language
+        BattleNotificationManager.shared.refreshLanguageIfScheduled()
+        // Recreate presentation only; all financial data stays in shared storage.
+        guard let window = view.window else { return }
+        let replacement = MainTabBarController()
+        replacement.loadViewIfNeeded()
+        replacement.selectedIndex = 3
+        UIView.transition(with: window, duration: 0.2, options: .transitionCrossDissolve) { window.rootViewController = replacement }
     }
 }
 

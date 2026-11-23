@@ -9,12 +9,12 @@ final class OpenRouterCategorizer {
     nonisolated static func assistantDisplayText(_ text: String) -> String {
         let replacements = [
             (#"(?i)\bfinlit\b"#, "Tengely"),
-            (#"(?i)(?:https?://)?(?:www\.)?kaspi\.kz/?"#, "банковское приложение"),
-            (#"(?i)(?:kaspi|каспи)\s*(?:red|ред|credit|кредит)"#, "кредит или рассрочка"),
-            (#"(?i)(?:kaspi|каспи)\s*(?:gold|голд)"#, "карта"),
-            (#"(?i)(?:kaspi|каспи)\s*(?:pay|пэй)"#, "бизнес-счёт"),
-            (#"(?i)(?:kaspi|каспи)\s*(?:bank|банк)"#, "банк"),
-            (#"(?i)kaspi|каспи"#, "банк")
+            (#"(?i)(?:https?://)?(?:www\.)?kaspi\.kz/?"#, L10n.text("банковское приложение")),
+            (#"(?i)(?:kaspi|каспи)\s*(?:red|ред|credit|кредит)"#, L10n.text("кредит или рассрочка")),
+            (#"(?i)(?:kaspi|каспи)\s*(?:gold|голд)"#, L10n.text("карта")),
+            (#"(?i)(?:kaspi|каспи)\s*(?:pay|пэй)"#, L10n.text("бизнес-счёт")),
+            (#"(?i)(?:kaspi|каспи)\s*(?:bank|банк)"#, L10n.text("банк")),
+            (#"(?i)kaspi|каспи"#, L10n.text("банк"))
         ]
         return replacements.reduce(text) { value, rule in
             value.replacingOccurrences(of: rule.0, with: rule.1, options: .regularExpression)
@@ -193,7 +193,7 @@ final class OpenRouterCategorizer {
                     let reason = evidence != nil && category != proposed ? evidence!.reason : item.reason
                     return CategoryAuditAssessment(snapshot: .init(original), suggestedCategory: category,
                         needsReview: category != original.category || (manual == nil && evidence == nil && (item.needsReview || category == .other)),
-                        reason: Self.assistantDisplayText(reason.isEmpty ? "Назначение платежа нужно уточнить у вас." : String(reason.prefix(300))))
+                        reason: Self.assistantDisplayText(reason.isEmpty ? L10n.text("Назначение платежа нужно уточнить у вас.") : String(reason.prefix(300))))
                 }
                 guard !results.isEmpty else { throw APIError.invalidResponse }
                 try Task.checkCancellation()
@@ -224,6 +224,7 @@ final class OpenRouterCategorizer {
         try requireAIConsent()
         var request = request
         request.setValue(AIPrivacyPreferences.version, forHTTPHeaderField: "X-Tengely-AI-Consent")
+        request.setValue(L10n.language.rawValue, forHTTPHeaderField: "X-Tengely-Language")
         return try await session.data(for: request)
     }
 
@@ -294,7 +295,7 @@ final class OpenRouterCategorizer {
         )
         guard !candidates.isEmpty else {
             return ReviewResult(
-                reply: "Сначала загрузите выписку — тогда я смогу найти и проверить операцию.",
+                reply: L10n.text("Сначала загрузите выписку — тогда я смогу найти и проверить операцию."),
                 changes: []
             )
         }
@@ -407,30 +408,30 @@ final class OpenRouterCategorizer {
         return selected
     }
 
-    private static let capabilitiesReply = "Кнопки под чатом помогут без ожидания посмотреть переводы человеку, расходы по категории и обзор за месяц. Нажмите «Проверить», чтобы найти ошибки в категориях с AI или исправить операцию вручную. Любое предложенное исправление можно проверить перед применением. Можно и просто написать: «Сколько я перевёл Даниялу за сентябрь?»"
+    private static var capabilitiesReply: String { L10n.text("Кнопки под чатом помогут без ожидания посмотреть переводы человеку, расходы по категории и обзор за месяц. Нажмите «Проверить», чтобы найти ошибки в категориях с AI или исправить операцию вручную. Любое предложенное исправление можно проверить перед применением. Можно и просто написать: «Сколько я перевёл Даниялу за сентябрь?»") }
 
     private static func quickAnswer(message: String, transactions: [Transaction]) -> ReviewResult? {
         let lower = message.lowercased().replacingOccurrences(of: "ё", with: "е")
-        guard !["исправ", "помен", "проверь", "правильн", "неверн", "сравн", "почему", "тестер"].contains(where: lower.contains),
-              ["сколько", "потрат", "расход", "перевел", "скинул", "перевод", "обзор", "баланс"].contains(where: lower.contains) else { return nil }
+        guard !["исправ", "помен", "проверь", "правильн", "неверн", "сравн", "почему", "тестер", "correct", "change", "check", "review", "wrong", "compare", "why", "tester"].contains(where: lower.contains),
+              ["сколько", "потрат", "расход", "перевел", "скинул", "перевод", "обзор", "баланс", "how much", "spent", "expenses", "transfer", "overview", "balance", "income", "received", "sent"].contains(where: lower.contains) else { return nil }
         // Leave non-calendar or incomplete date expressions to clarification in the free-form chat.
-        if ["недел", "сегодня", "вчера", "дней", "дня", "дней", "числа"].contains(where: lower.contains)
+        if ["недел", "сегодня", "вчера", "дней", "дня", "дней", "числа", "week", "today", "yesterday", "days"].contains(where: lower.contains)
             || lower.range(of: #"\d{1,2}[./]\d{1,2}"#, options: .regularExpression) != nil { return nil }
         let numbers = lower.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }
         if numbers.contains(where: { $0.count != 4 || !$0.hasPrefix("20") }) { return nil }
         let periodRows = transactionsInRequestedPeriod(message, transactions: transactions)
-        let incoming = ["мне", "получ", "кто", " от "].contains(where: lower.contains)
-        let outgoing = ["я перев", "я скин", "я отпра", "мои перев", "кому"].contains(where: lower.contains)
+        let incoming = ["мне", "получ", "кто", " от ", "received", "to me", "paid me", " from "].contains(where: lower.contains)
+        let outgoing = ["я перев", "я скин", "я отпра", "мои перев", "кому", "i transfer", "i sent", "my transfer", "did i send"].contains(where: lower.contains)
         let direction: AssistantAnalytics.Direction = incoming ? .incoming : .outgoing
         let queryStems = meaningfulStems(in: message)
-        let transferIntent = ["перев", "скин", "отправ"].contains(where: lower.contains) || lower.contains("получ") && lower.contains("от ")
-        let unresolvedReply = "Не удалось однозначно выбрать человека или магазин. Нажмите «Переводы» или «Расходы» под чатом и выберите нужный вариант. Общую сумму вместо нужной операции я не подставляю."
+        let transferIntent = ["перев", "скин", "отправ", "transfer", "sent", "send", "paid me"].contains(where: lower.contains) || lower.contains("получ") && lower.contains("от ") || lower.contains("received") && lower.contains("from ")
+        let unresolvedReply = L10n.text("Не удалось однозначно выбрать человека или магазин. Нажмите «Переводы» или «Расходы» под чатом и выберите нужный вариант. Общую сумму вместо нужной операции я не подставляю.")
         if transferIntent, lower.range(of: #"(?:перевел|скинул|отправил)\s+(?!мне\b|кому\b|куда\b|всем\b|всего\b|за\b|на\b)[\p{L}]{2,3}\b"#, options: .regularExpression) != nil {
             return ReviewResult(reply: unresolvedReply, changes: [])
         }
         let residual = queryStems.filter { Int($0) == nil }
         if transferIntent && !incoming && !outgoing {
-            return ReviewResult(reply: "Посмотреть ваши исходящие переводы или поступления от другого человека? Выберите направление кнопкой «Переводы» под чатом.", changes: [])
+            return ReviewResult(reply: L10n.text("Посмотреть ваши исходящие переводы или поступления от другого человека? Выберите направление кнопкой «Переводы» под чатом."), changes: [])
         }
         let merchantMatches = Dictionary(grouping: transactions.filter { $0.amount < 0 }, by: { AssistantAnalytics.merchantKey($0.merchant) })
             .compactMap { key, rows -> (String, String)? in
@@ -443,20 +444,20 @@ final class OpenRouterCategorizer {
         if transferIntent, matches.count == 1, let person = matches.first {
             query = .person(key: person.key, name: person.name, direction: direction)
         } else if transferIntent, matches.count > 1 {
-            return ReviewResult(reply: "В выписках несколько подходящих людей: \(matches.prefix(6).map(\.name).joined(separator: ", ")). Нажмите «Переводы» под чатом и выберите нужного человека.", changes: [])
+            return ReviewResult(reply: L10n.text("В выписках несколько подходящих людей: {0}. Нажмите «Переводы» под чатом и выберите нужного человека.", String(describing: matches.prefix(6).map(\.name).joined(separator: ", "))), changes: [])
         } else if let category = requestedCategory(in: message), category != .transfers {
             query = .category(category)
         } else if !transferIntent && merchantMatches.count == 1, let merchant = merchantMatches.first {
             query = .merchant(key: merchant.0, name: merchant.1)
         } else if !residual.isEmpty {
             return ReviewResult(reply: unresolvedReply, changes: [])
-        } else if transferIntent && (lower.contains("всего") || lower.contains("кому") || lower.contains("кто")) {
+        } else if transferIntent && ["всего", "кому", "кто", "total", "everyone", "all transfers", "who"].contains(where: lower.contains) {
             query = .transfers(direction)
-        } else if ["обзор", "баланс", "на что", "больше всего"].contains(where: lower.contains) {
+        } else if ["обзор", "баланс", "на что", "больше всего", "overview", "balance"].contains(where: lower.contains) {
             query = .overview
-        } else if !transferIntent && ["потрат", "расход"].contains(where: lower.contains) {
+        } else if !transferIntent && ["потрат", "расход", "spent", "expenses", "spending"].contains(where: lower.contains) {
             query = .expenses
-        } else if !transferIntent && ["получ", "доход", "поступ"].contains(where: lower.contains) {
+        } else if !transferIntent && ["получ", "доход", "поступ", "received", "income"].contains(where: lower.contains) {
             query = .income
         } else {
             // Unknown names need clarification from the AI instead of returning a total for everybody.
@@ -464,17 +465,20 @@ final class OpenRouterCategorizer {
         }
         let result = AssistantAnalytics.answer(query: query, period: .all, transactions: periodRows)
         let date = DateFormatter()
-        date.locale = Locale(identifier: "ru_RU")
+        date.locale = L10n.locale
         date.dateFormat = "dd.MM.yyyy"
         let period = [periodRows.map(\.date).min(), periodRows.map(\.date).max()].compactMap { $0 }.map(date.string).joined(separator: "–")
         let insight = AIChatInsight(title: result.insight.title, amount: result.insight.amount,
-                                    subtitle: "\(period.isEmpty ? "За выбранный период" : period) · по загруженным операциям", lines: result.insight.lines)
+                                    subtitle: L10n.text("{0} · по загруженным операциям", String(describing: period.isEmpty ? L10n.text("За выбранный период") : period)), lines: result.insight.lines)
         return ReviewResult(reply: "\(insight.title). \(insight.subtitle): \(AssistantAnalytics.money(insight.amount)).\n\(insight.lines.joined(separator: "\n"))", changes: [], insight: insight)
     }
 
     private static func isCapabilitiesQuestion(_ message: String) -> Bool {
         let value = message.lowercased()
         return value.contains("что ты умеешь")
+            || value.contains("what can you do")
+            || value.contains("how can you help")
+            || value.contains("your features")
             || value.contains("что умеешь")
             || value.contains("твои возможности")
             || value.contains("как ты можешь помочь")
@@ -509,12 +513,12 @@ final class OpenRouterCategorizer {
         let categories = Dictionary(grouping: periodRows.filter { $0.amount < 0 }, by: \.category)
             .mapValues { rows in rows.reduce(0.0) { $0 + abs($1.amount) } }
             .sorted { $0.value > $1.value }
-            .map { "\($0.key.rawValue)=\(moneyNumber($0.value))" }
+            .map { "\($0.key.displayName)=\(moneyNumber($0.value))" }
             .joined(separator: ", ")
         let monthlySummary = monthlyTotals(in: transactions)
         let recurringSummary = recurringPaymentFacts(in: transactions)
         let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "ru_RU")
+        dateFormatter.locale = L10n.locale
         dateFormatter.dateFormat = "dd.MM.yyyy"
         let sortedDates = periodRows.map(\.date).sorted()
         let periodText: String
@@ -524,7 +528,7 @@ final class OpenRouterCategorizer {
             periodText = "нет подходящих дат"
         }
         let focusName = entityMatch?.rows.first?.merchant
-            ?? category?.rawValue
+            ?? category?.displayName
             ?? "все подходящие операции"
         return [
             "ЛОКАЛЬНО РАССЧИТАННЫЕ ТОЧНЫЕ ФАКТЫ (считать заново не нужно):",
@@ -559,7 +563,7 @@ final class OpenRouterCategorizer {
         let expenses = transactions.filter { $0.amount < 0 && !ignored.contains($0.category) }
         let grouped = Dictionary(grouping: expenses) { transaction in
             transaction.merchant.lowercased()
-                .folding(options: [.diacriticInsensitive], locale: Locale(identifier: "ru_RU"))
+                .folding(options: [.diacriticInsensitive], locale: L10n.locale)
                 .replacingOccurrences(of: #"[^\p{L}\p{N}]+"#, with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -577,7 +581,7 @@ final class OpenRouterCategorizer {
             guard spread <= max(average * 0.25, 1_000) else { return nil }
             return (
                 average * Double(rows.count),
-                "\(sample.merchant): \(rows.count) платежа, обычно \(moneyNumber(average)) ₸, категория \(sample.category.rawValue)"
+                "\(sample.merchant): \(rows.count) платежа, обычно \(moneyNumber(average)) ₸, категория \(sample.category.displayName)"
             )
         }
         .sorted { $0.0 > $1.0 }
@@ -595,12 +599,12 @@ final class OpenRouterCategorizer {
         let now = Date()
         let explicitYear = lower.range(of: #"\b20\d{2}\b"#, options: .regularExpression)
             .flatMap { Int(lower[$0]) }
-        if lower.contains("прошл") && lower.contains("месяц"),
+        if (lower.contains("прошл") && lower.contains("месяц") || lower.contains("last month") || lower.contains("previous month")),
            let previous = calendar.date(byAdding: .month, value: -1, to: now),
            let interval = calendar.dateInterval(of: .month, for: previous) {
             return transactions.filter { interval.containsTransactionDate($0.date) }
         }
-        if (lower.contains("этот месяц") || lower.contains("текущ") && lower.contains("месяц")),
+        if (lower.contains("этот месяц") || lower.contains("текущ") && lower.contains("месяц") || lower.contains("this month") || lower.contains("current month")),
            let interval = calendar.dateInterval(of: .month, for: now) {
             return transactions.filter { interval.containsTransactionDate($0.date) }
         }
@@ -610,13 +614,16 @@ final class OpenRouterCategorizer {
             ("мая", 5), ("май", 5), ("июн", 6), ("июл", 7),
             ("август", 8), ("сентябр", 9), ("октябр", 10),
             ("ноябр", 11), ("декабр", 12),
+            ("january", 1), ("february", 2), ("march", 3), ("april", 4),
+            ("may", 5), ("june", 6), ("july", 7), ("august", 8),
+            ("september", 9), ("october", 10), ("november", 11), ("december", 12),
         ]
         guard let month = months.first(where: { lower.contains($0.0) })?.1 else {
             if let explicitYear {
                 return transactions.filter { calendar.component(.year, from: $0.date) == explicitYear }
             }
-            if lower.contains("год") && (lower.contains("прошл") || lower.contains("текущ") || lower.contains("этот")) {
-                let year = calendar.component(.year, from: now) - (lower.contains("прошл") ? 1 : 0)
+            if lower.contains("год") && (lower.contains("прошл") || lower.contains("текущ") || lower.contains("этот")) || ["last year", "this year", "current year", "previous year"].contains(where: lower.contains) {
+                let year = calendar.component(.year, from: now) - (lower.contains("прошл") || lower.contains("last year") || lower.contains("previous year") ? 1 : 0)
                 return transactions.filter { calendar.component(.year, from: $0.date) == year }
             }
             return transactions
@@ -634,6 +641,15 @@ final class OpenRouterCategorizer {
 
     private static func requestedCategory(in message: String) -> TxCategory? {
         let lower = message.lowercased()
+        let english: [(TxCategory, [String])] = [
+            (.food, ["groceries", "supermarket"]), (.cafes, ["dining", "restaurant", "food delivery", "cafe"]),
+            (.transport, ["transport", "taxi", "bus fare"]), (.entertainment, ["entertainment", "cinema", "games"]),
+            (.health, ["health", "pharmacy", "doctor"]), (.education, ["education", "tuition", "course"]),
+            (.utilities, ["utilities", "mobile", "internet"]), (.subscriptions, ["subscription"]),
+            (.shopping, ["shopping"]), (.loans, ["loan", "debt"]), (.taxes, ["taxes", "fines"]),
+            (.cashWithdrawals, ["cash withdrawal"]), (.internalTransfers, ["internal transfer"]), (.transfers, ["transfer"]),
+        ]
+        if let category = english.first(where: { $0.1.contains(where: lower.contains) })?.0 { return category }
         let mappings: [(TxCategory, [String])] = [
             (.food, ["продукт", "супермаркет"]),
             (.cafes, ["кафе", "ресторан", "доставк", "еду", "еда"]),
@@ -654,6 +670,7 @@ final class OpenRouterCategorizer {
 
     private static func meaningfulStems(in text: String) -> Set<String> {
         let ignored: Set<String> = [
+            "much", "have", "what", "which", "where", "when", "total", "trans", "spent", "spend", "money", "amoun", "payme", "incom", "expen", "recei", "sent", "show", "find", "month", "year", "last", "this", "from", "with", "into", "about", "pleas", "curre", "janua", "febru", "march", "april", "june", "july", "augus", "septe", "octob", "novem", "decem",
             "сколь", "всего", "пере", "перев", "отпра", "потра", "запла",
             "получ", "трат", "опера", "деньг", "сумм", "тенге", "месяц",
             "недел", "покаж", "найди", "какие", "какой", "было", "этому",
@@ -733,15 +750,15 @@ final class OpenRouterCategorizer {
         var errorDescription: String? {
             switch self {
             case .invalidURL:
-                return "Неверный адрес AI-сервера"
+                return L10n.text("Неверный адрес AI-сервера")
             case .invalidResponse:
-                return "AI-сервер вернул неверный ответ"
+                return L10n.text("AI-сервер вернул неверный ответ")
             case .server(_, let message):
                 return message
             case .dailyChatLimit(let message):
                 return message
             case .aiConsentRequired:
-                return "Обработка с AI выключена. Разрешите отправку данных в настройках конфиденциальности или используйте локальные функции."
+                return L10n.text("Обработка с AI выключена. Разрешите отправку данных в настройках конфиденциальности или используйте локальные функции.")
             }
         }
     }
@@ -750,8 +767,8 @@ final class OpenRouterCategorizer {
         struct Envelope: Decodable { let error: String?; let message: String?; let code: String? }
         let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
         if envelope?.code == "DAILY_CHAT_LIMIT" {
-            return .dailyChatLimit(envelope?.error ?? "Дневной лимит AI-чата исчерпан. Он обновится в 00:00 по времени Алматы.")
+            return .dailyChatLimit(envelope?.error ?? L10n.text("Дневной лимит AI-чата исчерпан. Он обновится в 00:00 по времени Алматы."))
         }
-        return .server(status, envelope?.error ?? envelope?.message ?? "AI-сервер вернул ошибку HTTP \(status)")
+        return .server(status, envelope?.error ?? envelope?.message ?? L10n.text("AI-сервер вернул ошибку HTTP {0}", String(describing: status)))
     }
 }

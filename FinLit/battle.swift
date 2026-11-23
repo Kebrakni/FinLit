@@ -147,7 +147,7 @@ final class BattleCell: UITableViewCell {
             rankLabel.text = "\(rank)"
         }
 
-        nameLabel.text = isMe ? "\(participant.name) (Ты)" : participant.name
+        nameLabel.text = isMe ? L10n.text("{0} (Ты)", String(describing: participant.name)) : participant.name
 
         let initials = participant.name
             .components(separatedBy: " ")
@@ -160,6 +160,7 @@ final class BattleCell: UITableViewCell {
 
         let isNeg = participant.savedAmount < 0
         let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
+        f.locale = L10n.locale
         let pct = participant.progress * 100
         amountLabel.text = String(format: "%.0f%%", pct)
         amountLabel.textColor = isMe ? FinLitTheme.accent : (isNeg ? .systemRed : .systemGreen)
@@ -175,7 +176,7 @@ final class BattleCell: UITableViewCell {
         badgeAttachment.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)
         let badgeAttr = NSMutableAttributedString(string: "  ")
         badgeAttr.append(NSAttributedString(attachment: badgeAttachment))
-        let badgeText = reachedGoal ? " цель достигнута  " : (isNeg ? " начинаем заново  " : " личная цель  ")
+        let badgeText = reachedGoal ? L10n.text(" цель достигнута  ") : (isNeg ? L10n.text(" начинаем заново  ") : L10n.text(" личная цель  "))
         badgeAttr.append(NSAttributedString(string: badgeText))
         statusBadge.attributedText = badgeAttr
         let badgeColor = reachedGoal ? FinLitTheme.accent : (isNeg ? UIColor.systemOrange : .systemGreen)
@@ -187,7 +188,7 @@ final class BattleCell: UITableViewCell {
 
         let savedStr = f.string(from: NSNumber(value: max(participant.savedAmount, 0))) ?? "0"
         let targetStr = f.string(from: NSNumber(value: participant.targetAmount)) ?? "0"
-        progressLabel.text = "\(savedStr) из \(targetStr) ₸"
+        progressLabel.text = L10n.text("{0} из {1} ₸", String(describing: savedStr), String(describing: targetStr))
 
         cardView.layer.borderWidth = isMe ? 2 : 0
         cardView.layer.borderColor = FinLitTheme.accent.cgColor
@@ -208,7 +209,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
     }
 
     private var myName: String {
-        UserDefaults.standard.string(forKey: "battle_my_name") ?? "Я"
+        UserDefaults.standard.string(forKey: "battle_my_name") ?? L10n.text("Я")
     }
 
     private var currentRoomId: String? {
@@ -242,7 +243,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Битва"
+        title = L10n.text("Битва")
         view.backgroundColor = FinLitTheme.background
         setupNav()
         setupUI()
@@ -286,9 +287,9 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     @objc private func showMenu() {
         let sheet = FinLitFormSheet(
-            title: "Копить вместе интереснее",
-            detail: "Создайте комнату и пригласите друзей или присоединитесь по коду. В рейтинге учитывается процент личной цели.",
-            symbol: "person.2.fill", action: "Закрыть"
+            title: L10n.text("Копить вместе интереснее"),
+            detail: L10n.text("Создайте комнату и пригласите друзей или присоединитесь по коду. В рейтинге учитывается процент личной цели."),
+            symbol: "person.2.fill", action: L10n.text("Закрыть")
         )
         sheet.sheetPresentationController?.detents = [
             .custom(identifier: .init("battleActions")) { min(630, $0.maximumDetentValue) }, .large()
@@ -296,8 +297,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         sheet.loadViewIfNeeded()
         sheet.submitButton.addAction(UIAction { [weak sheet] _ in sheet?.finish() }, for: .touchUpInside)
         for (title, symbol, action) in [
-            ("Создать комнату", "plus.circle.fill", { [weak self] in self?.didTapCreateRoom() }),
-            ("У меня есть код", "rectangle.and.pencil.and.ellipsis", { [weak self] in self?.didTapJoinRoom() })
+            (L10n.text("Создать комнату"), "plus.circle.fill", { [weak self] in self?.didTapCreateRoom() }),
+            (L10n.text("У меня есть код"), "rectangle.and.pencil.and.ellipsis", { [weak self] in self?.didTapJoinRoom() })
         ] {
             let button = UIButton(type: .system)
             var config = UIButton.Configuration.tinted()
@@ -317,15 +318,15 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func battleMenu() -> UIMenu {
         UIMenu(children: [
-            UIAction(title: "Создать комнату", image: UIImage(systemName: "plus.circle")) { [weak self] _ in self?.didTapCreateRoom() },
-            UIAction(title: "Войти по коду", image: UIImage(systemName: "person.badge.plus")) { [weak self] _ in self?.didTapJoinRoom() },
-            UIAction(title: "Моё имя", image: UIImage(systemName: "person.crop.circle")) { [weak self] _ in self?.didTapChangeName() },
-            UIAction(title: "Скопировать код", image: UIImage(systemName: "doc.on.doc"), attributes: currentRoomId == nil ? .hidden : []) { [weak self] _ in
+            UIAction(title: L10n.text("Создать комнату"), image: UIImage(systemName: "plus.circle")) { [weak self] _ in self?.didTapCreateRoom() },
+            UIAction(title: L10n.text("Войти по коду"), image: UIImage(systemName: "person.badge.plus")) { [weak self] _ in self?.didTapJoinRoom() },
+            UIAction(title: L10n.text("Моё имя"), image: UIImage(systemName: "person.crop.circle")) { [weak self] _ in self?.didTapChangeName() },
+            UIAction(title: L10n.text("Скопировать код"), image: UIImage(systemName: "doc.on.doc"), attributes: currentRoomId == nil ? .hidden : []) { [weak self] _ in
                 guard let self, let code = self.currentRoomId else { return }
                 UIPasteboard.general.string = code
-                self.showBanner("Код скопирован")
+                self.showBanner(L10n.text("Код скопирован"))
             },
-            UIAction(title: "Покинуть комнату", image: UIImage(systemName: "rectangle.portrait.and.arrow.right"), attributes: currentRoomId == nil ? [.hidden, .destructive] : .destructive) { [weak self] _ in self?.leaveRoom() }
+            UIAction(title: L10n.text("Покинуть комнату"), image: UIImage(systemName: "rectangle.portrait.and.arrow.right"), attributes: currentRoomId == nil ? [.hidden, .destructive] : .destructive) { [weak self] _ in self?.leaveRoom() }
         ])
     }
 
@@ -343,7 +344,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         trophyLabel.textAlignment = .center
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.text = "Кто ближе к своей цели?"
+        subtitleLabel.text = L10n.text("Кто ближе к своей цели?")
         subtitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         subtitleLabel.textAlignment = .center
 
@@ -352,17 +353,17 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         FinLitTheme.styleCard(myStatsCard, radius: 24)
 
         myNetTitle.translatesAutoresizingMaskIntoConstraints = false
-        myNetTitle.text = "Твой прогресс в битве"
+        myNetTitle.text = L10n.text("Твой прогресс в битве")
         myNetTitle.font = .systemFont(ofSize: 13); myNetTitle.textColor = .secondaryLabel
 
         myNetLabel.translatesAutoresizingMaskIntoConstraints = false
         myNetLabel.font = .monospacedDigitSystemFont(ofSize: 34, weight: .bold)
         myNetLabel.adjustsFontSizeToFitWidth = true
         myNetLabel.minimumScaleFactor = 0.7
-        myNetLabel.text = "Загрузи PDF →"; myNetLabel.textColor = .secondaryLabel
+        myNetLabel.text = L10n.text("Загрузи PDF →"); myNetLabel.textColor = .secondaryLabel
 
         myNetHint.translatesAutoresizingMaskIntoConstraints = false
-        myNetHint.text = "Сравниваем процент личной цели — так честнее при разных доходах"
+        myNetHint.text = L10n.text("Сравниваем процент личной цели — так честнее при разных доходах")
         myNetHint.font = .systemFont(ofSize: 11); myNetHint.textColor = .secondaryLabel
         myNetHint.numberOfLines = 2
 
@@ -374,7 +375,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         actionButton.translatesAutoresizingMaskIntoConstraints = false
         FinLitTheme.configurePrimaryButton(
             actionButton,
-            title: "Создать или войти в комнату",
+            title: L10n.text("Создать или войти в комнату"),
             image: "person.2.fill"
         )
         actionButton.addTarget(self, action: #selector(didTapActionButton), for: .touchUpInside)
@@ -423,7 +424,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         tableView.separatorStyle = .none; tableView.backgroundColor = .clear
 
         let hdr = UILabel()
-        hdr.text = "  Рейтинг по проценту личной цели"
+        hdr.text = L10n.text("  Рейтинг по проценту личной цели")
         hdr.font = .systemFont(ofSize: 13, weight: .semibold); hdr.textColor = .secondaryLabel
         hdr.frame = CGRect(x: 0, y: 0, width: 200, height: 32)
         tableView.tableHeaderView = hdr
@@ -446,15 +447,15 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     @objc private func didTapCreateRoom() {
         let sheet = FinLitInputSheet(
-            title: "Своя команда",
-            detail: "У каждого своя цель. В рейтинге вы сравниваете прогресс к ней — в процентах.",
-            symbol: "trophy.fill", action: "Создать комнату", fieldTitle: "Ваша цель в битве · ₸",
+            title: L10n.text("Своя команда"),
+            detail: L10n.text("У каждого своя цель. В рейтинге вы сравниваете прогресс к ней — в процентах."),
+            symbol: "trophy.fill", action: L10n.text("Создать комнату"), fieldTitle: L10n.text("Ваша цель в битве · ₸"),
             placeholder: "350 000", value: String(format: "%.2f", AppStorage.shared.loadGoal().targetAmount).replacingOccurrences(of: ".00", with: ""), amount: true
         )
         sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
             guard let goal = FinLitDisplay.amount(sheet.field.input.text) else {
-                sheet.showError("Укажите сумму цели больше нуля.")
+                sheet.showError(L10n.text("Укажите сумму цели больше нуля."))
                 return
             }
             sheet.showError(nil)
@@ -483,8 +484,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func presentRoomInvite(_ code: String) {
         let sheet = FinLitFormSheet(
-            title: "Команда готова", detail: "Отправьте код друзьям. Они смогут присоединиться к вашей битве через «Войти по коду».",
-            symbol: "checkmark.seal.fill", action: "Скопировать код", actionSymbol: "doc.on.doc"
+            title: L10n.text("Команда готова"), detail: L10n.text("Отправьте код друзьям. Они смогут присоединиться к вашей битве через «Войти по коду»."),
+            symbol: "checkmark.seal.fill", action: L10n.text("Скопировать код"), actionSymbol: "doc.on.doc"
         )
         sheet.sheetPresentationController?.detents = [
             .custom(identifier: .init("roomInvite")) { min(580, $0.maximumDetentValue) }, .large()
@@ -511,8 +512,8 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     @objc private func didTapJoinRoom() {
         let sheet = FinLitInputSheet(
-            title: "Вместе к цели", detail: "Введите шестизначный код, которым поделился друг.",
-            symbol: "person.badge.plus", action: "Присоединиться", fieldTitle: "Код комнаты", placeholder: "ABC234"
+            title: L10n.text("Вместе к цели"), detail: L10n.text("Введите шестизначный код, которым поделился друг."),
+            symbol: "person.badge.plus", action: L10n.text("Присоединиться"), fieldTitle: L10n.text("Код комнаты"), placeholder: "ABC234"
         )
         sheet.field.input.autocapitalizationType = .allCharacters
         sheet.field.input.autocorrectionType = .no
@@ -523,7 +524,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased()
             guard code.count == 6, code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
-                sheet.showError("Код состоит из 6 латинских букв и цифр."); return
+                sheet.showError(L10n.text("Код состоит из 6 латинских букв и цифр.")); return
             }
             sheet.showError(nil)
             sheet.setLoading(true)
@@ -538,7 +539,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
                 self.subscribeToRoom(code)
                 self.updateActionButton()
                 BattleNotificationManager.shared.requestPermissionAndSchedule()
-                sheet.finish { self.showBanner("Ты в комнате \(code)!") }
+                sheet.finish { self.showBanner(L10n.text("Ты в комнате {0}!", String(describing: code))) }
             }
         }
         present(sheet, animated: true)
@@ -599,7 +600,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         let personalTarget = battleTarget(for: roomId)
         roomStore.update(code: roomId, member: memberPayload(target: personalTarget)) { [weak self] error in
             guard let self, self.currentRoomId == roomId, !self.isLeavingRoom, let error else { return }
-            self.showBanner("Не удалось обновить счёт: \(error.localizedDescription)")
+            self.showBanner(L10n.text("Не удалось обновить счёт: {0}", String(describing: error.localizedDescription)))
         }
 
         updateMyCard(net: saved, target: personalTarget)
@@ -613,7 +614,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         roomStore.leave(code: roomId, uid: myUid) { [weak self] error in
             guard let self else { return }
             self.isLeavingRoom = false
-            if let error { self.showAlert("Не удалось выйти", error.localizedDescription); return }
+            if let error { self.showAlert(L10n.text("Не удалось выйти"), error.localizedDescription); return }
             guard self.currentRoomId == roomId else { return }
             self.firestoreListener?.remove()
             self.currentRoomId = nil
@@ -622,7 +623,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
             self.tableView.reloadData()
             self.updateActionButton()
             self.loadLocalFallback()
-            self.showBanner("Ты покинул комнату")
+            self.showBanner(L10n.text("Ты покинул комнату"))
         }
     }
 
@@ -683,15 +684,16 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     private func updateMyCard(net: Double, target: Double? = nil) {
         let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 2
+        f.locale = L10n.locale
         let isNeg  = net < 0
         let personalTarget = max(target ?? AppStorage.shared.loadGoal().targetAmount, 1)
         let progress = min(max(net / personalTarget, 0), 1)
         let savedStr = f.string(from: NSNumber(value: max(net, 0))) ?? "0"
         let targetStr = f.string(from: NSNumber(value: personalTarget)) ?? "0"
 
-        myNetLabel.text = String(format: "%.0f%% цели", progress * 100)
+        myNetLabel.text = String(format: L10n.text("%.0f%% цели"), progress * 100)
         myNetLabel.textColor = isNeg ? .systemOrange : FinLitTheme.accent
-        myNetHint.text = "\(savedStr) из \(targetStr) ₸ • выписка + добавлено вручную"
+        myNetHint.text = L10n.text("{0} из {1} ₸ • выписка + добавлено вручную", String(describing: savedStr), String(describing: targetStr))
 
         myStatsCard.backgroundColor = FinLitTheme.surface
     }
@@ -711,9 +713,9 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         navigationItem.rightBarButtonItem?.menu = battleMenu()
         let title: String
         if currentRoomId == nil {
-            title = "Создать или войти в комнату"
+            title = L10n.text("Создать или войти в комнату")
         } else {
-            title = "Пригласить друга"
+            title = L10n.text("Пригласить друга")
         }
         actionButton.configuration?.title = title
     }
@@ -728,20 +730,20 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
 
     @objc private func didTapChangeName() {
         let sheet = FinLitInputSheet(
-            title: "Как вас узнают", detail: "Это имя увидят друзья в рейтинге комнаты.",
-            symbol: "person.crop.circle.fill", action: "Сохранить имя", fieldTitle: "Имя в битве",
-            placeholder: "Ваше имя", value: myName
+            title: L10n.text("Как вас узнают"), detail: L10n.text("Это имя увидят друзья в рейтинге комнаты."),
+            symbol: "person.crop.circle.fill", action: L10n.text("Сохранить имя"), fieldTitle: L10n.text("Имя в битве"),
+            placeholder: L10n.text("Ваше имя"), value: myName
         )
         sheet.field.input.autocapitalizationType = .words
         sheet.onSubmit = { [weak self] sheet in
             guard let self else { return }
             let name = (sheet.field.input.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name.count <= 40 else {
-                sheet.showError("Введите имя от 1 до 40 символов."); return
+                sheet.showError(L10n.text("Введите имя от 1 до 40 символов.")); return
             }
             UserDefaults.standard.set(name, forKey: "battle_my_name")
             self.pushMyAmountIfNeeded()
-            sheet.finish { self.showBanner("Имя обновлено: \(name)") }
+            sheet.finish { self.showBanner(L10n.text("Имя обновлено: {0}", String(describing: name))) }
         }
         present(sheet, animated: true)
     }
@@ -775,7 +777,7 @@ final class BattleViewController: UIViewController, UITableViewDataSource, UITab
         let isMe = (currentRoomId != nil) ? (p.id == myUid) : (p.id == "me_local")
         guard !isMe, currentRoomId == nil else { return nil } // удалять можно только в локальном режиме
 
-        let del = UIContextualAction(style: .destructive, title: "Удалить") { [weak self] _, _, done in
+        let del = UIContextualAction(style: .destructive, title: L10n.text("Удалить")) { [weak self] _, _, done in
             guard let self else { return }
             self.localParticipants.removeAll { $0.id == p.id }
             AppStorage.shared.saveBattleParticipants(self.localParticipants)
